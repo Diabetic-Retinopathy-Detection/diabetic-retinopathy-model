@@ -1,0 +1,114 @@
+[project]
+name = "diabetic-retinopathy-model"
+version = "0.1.0"
+description = "ViT-based model for diabetic retinopathy classification — training, inference, and serving."
+authors = [{ name = "Stefan Meier", email = "42180739+Meier-Stefan@users.noreply.github.com (open issues to contact me)" }]
+readme = "README.md"
+keywords = ["retina", "fundus", "diabetic-retinopathy", "deep-learning", "vit", "ssit"]
+requires-python = ">=3.10"
+classifiers = [
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+# PyTorch: MPS is the dev target, CUDA is the cluster target.
+# Floor-only pin lets uv.lock handle exact resolution per platform.
+dependencies = [
+    "torch>=2.2.0",
+    "torchvision>=0.17.0",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "pyyaml>=6.0",
+    "pillow>=11.0.0",
+    "numpy>=1.26.0",
+    "opencv-contrib-python-headless>=4.8.0",
+    "tqdm>=4.66.0",
+]
+
+[project.scripts]
+dr-train = "dr_model.training.cli:main"
+dr-serve = "dr_model.serve.app:main"
+
+[project.urls]
+Repository = "https://github.com/Diabetic-Retinopathy-Detection/diabetic-retinopathy-model"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-asyncio>=0.25.0",
+    "httpx>=0.28.0",
+    "pre-commit>=4.5.1",
+    "deptry>=0.25.1",
+    "mypy>=1.19.1",
+    "pytest-cov>=7.0.0",
+    "ruff>=0.15.7",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dr_model"]
+include = ["src/dr_model/py.typed"]
+
+[tool.mypy]
+files = ["src"]
+disallow_untyped_defs = true
+disallow_any_unimported = true
+no_implicit_optional = true
+check_untyped_defs = true
+warn_return_any = true
+warn_unused_ignores = true
+show_error_codes = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+fix = true
+
+[tool.ruff.lint]
+select = [
+    "YTT",
+    "S",
+    "B",
+    "A",
+    "C4",
+    "T10",
+    "SIM",
+    "I",
+    "C90",
+    "E", "W",
+    "F",
+    "PGH",
+    "UP",
+    "RUF",
+    "TRY",
+]
+ignore = [
+    "E731",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]
+
+[tool.ruff.format]
+preview = true
+
+[tool.coverage.report]
+skip_empty = true
+
+[tool.coverage.run]
+branch = true
+source = ["src"]
