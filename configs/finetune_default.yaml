@@ -1,26 +1,31 @@
-# TODO: fill in for fine‑tuning phase
-model:
-  name: vit_base
-  pretrained_weights: null
-  num_classes: 5
+# TODO: fill in for fine-tuning phase
 
-data:
-  data_dir: null
-  image_size: [224, 224]
-  train_split: 0.8
-  val_split: 0.1
+# Architecture: standard ViT-B/16 per Dosovitskiy et al. (2020)
+patch_size: 16
+embed_dim: 768
+depth: 12
+num_heads: 12
+mlp_ratio: 4.0
+drop_rate: 0.0
+attn_drop_rate: 0.0
 
-training:
-  batch_size: 32
-  learning_rate: 1e-05
-  max_epochs: 50
-  gradient_clip_val: 1.0
-  accumulate_grad_batches: 1
-  precision: 16-mixed
-  num_workers: 4
+pretrained_weights: null
+num_classes: 5
 
-serving:
-  host: 0.0.0.0
-  port: 8000
-  workers: 1
-  max_batch_size: 16
+data_dir: null
+image_size: [224, 224]
+num_workers: 4
+train_split: 0.8
+val_split: 0.1
+
+batch_size: 32
+learning_rate: 1e-05
+max_epochs: 50
+gradient_clip_val: 1.0
+accumulate_grad_batches: 1
+precision: 16-mixed
+
+host: 0.0.0.0
+port: 8000
+workers: 1
+max_batch_size: 16

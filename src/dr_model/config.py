@@ -4,7 +4,12 @@ import os
 from pathlib import Path
 
 from pydantic import computed_field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import (
+    BaseSettings,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+    YamlConfigSettingsSource,
+)
 
 YAML_FILE = os.getenv("DR_CONFIG_FILE", "configs/pretrain_default.yaml")
 
@@ -15,6 +20,22 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         yaml_file=YAML_FILE,
     )
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        return (
+            init_settings,
+            env_settings,
+            dotenv_settings,
+            YamlConfigSettingsSource(settings_cls),
+        )
 
     # ── paths ──────────────────────────────────────────────────────
     checkpoint_dir: Path = Path("checkpoints")
