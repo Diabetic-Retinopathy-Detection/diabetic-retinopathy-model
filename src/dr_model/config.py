@@ -1,3 +1,20 @@
+"""Application configuration.
+
+``Settings`` is the single source of truth for every hyper-parameter in the
+system — architecture, training, data, and serving.  It is a Pydantic
+``BaseSettings`` subclass, so values resolve from (in ascending priority):
+
+1. Class defaults
+2. YAML file (``configs/pretrain_default.yaml`` unless ``DR_CONFIG_FILE`` is set)
+3. ``.env`` file
+4. Environment variables
+
+``model_name`` is a ``@computed_field`` derived from the architecture
+parameters (``patch_size``, ``embed_dim``, ``depth``, ``num_heads``,
+``num_classes``).  It is read-only and always in sync — there is no manual
+override.  Use it for checkpoint filenames, logging, and serving metadata.
+"""
+
 from __future__ import annotations
 
 import os
