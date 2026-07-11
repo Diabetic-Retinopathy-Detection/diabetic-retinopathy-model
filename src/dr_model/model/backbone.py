@@ -7,6 +7,7 @@ All architecture parameters are read from :class:`dr_model.config.Settings`.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 import torch
 from torch import Tensor, nn
@@ -22,7 +23,7 @@ class PatchEmbed(nn.Module):
         self.proj = nn.Conv2d(3, embed_dim, kernel_size=patch_size, stride=patch_size)
 
     def forward(self, x: Tensor) -> Tensor:
-        return self.proj(x).flatten(2).transpose(1, 2)  # type: ignore[no-any-return]
+        return cast(Tensor, self.proj(x).flatten(2).transpose(1, 2))
 
 
 class Block(nn.Module):
@@ -145,7 +146,7 @@ class ViTBackbone(nn.Module):
         x = self.blocks(x)
         x = self.norm(x)
 
-        return self.head(x[:, 0])  # type: ignore[no-any-return]
+        return cast(Tensor, self.head(x[:, 0]))
 
     @torch.no_grad()
     def load_checkpoint(self, path: str | Path, strict: bool = True) -> None:

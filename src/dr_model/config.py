@@ -63,7 +63,10 @@ class Settings(BaseSettings):
     def _normalise_image_size(cls, v: object) -> tuple[int, int]:
         if isinstance(v, int):
             return (v, v)
-        return v  # type: ignore[return-value]
+        if isinstance(v, (list, tuple)) and len(v) == 2:
+            return (int(v[0]), int(v[1]))
+        msg = f"image_size must be an int or a 2-element sequence, got {type(v)}"
+        raise ValueError(msg)
 
     @computed_field  # type: ignore[prop-decorator]
     @property
