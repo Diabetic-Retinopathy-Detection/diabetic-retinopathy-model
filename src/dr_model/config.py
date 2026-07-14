@@ -93,6 +93,7 @@ class Settings(BaseSettings):
     lambda_s: float = 10.0
     ss_decay: bool = False
     save_every: int = 20
+    seed: int = -1
 
     # ── data ───────────────────────────────────────────────────────
     image_size: tuple[int, int] = (224, 224)

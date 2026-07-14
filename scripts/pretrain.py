@@ -18,7 +18,6 @@ import os
 import sys
 from pathlib import Path
 
-import torch
 from torch.utils.tensorboard import SummaryWriter
 
 os.environ.setdefault("DR_CONFIG_FILE", "configs/pretrain_default.yaml")
@@ -27,6 +26,7 @@ from dr_model.config import Settings
 from dr_model.data.pretrain_datamodule import PretrainDataModule
 from dr_model.model.pretrain import Pretrainer
 from dr_model.training.pretrain_loop import pretrain
+from dr_model.utils import resolve_device, setup_determinism
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -43,15 +43,29 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Path to checkpoint.pt to resume from.",
     )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Random seed (overrides config). Set to -1 to disable.",
+    )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="auto",
+        help="Device: auto, cpu, cuda, mps.",
+    )
     args = parser.parse_args(argv)
 
     if args.config is not None:
         os.environ["DR_CONFIG_FILE"] = args.config
 
     config = Settings()
-    device = torch.device(
-        "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
-    )
+    if args.seed is not None:
+        config = config.model_copy(update={"seed": args.seed})
+    device = resolve_device(args.device)
+    if config.seed >= 0:
+        setup_determinism(config.seed)
     print(f"Using device: {device}")
 
     dm = PretrainDataModule(config)
@@ -70,6 +84,7 @@ def main(argv: list[str] | None = None) -> int:
         model=model,
         train_dataloader=dl,
         config=config,
+        device=device,
         writer=writer,
         resume_path=resume_path,
     )

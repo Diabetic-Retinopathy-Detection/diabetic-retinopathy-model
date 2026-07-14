@@ -87,6 +87,7 @@ def pretrain(
     train_dataloader: DataLoader,
     config: Settings,
     *,
+    device: torch.device,
     writer: SummaryWriter | None = None,
     resume_path: Path | None = None,
 ) -> None:
@@ -100,15 +101,16 @@ def pretrain(
         Yields ``(x1, x2, m1, m2)`` batches.
     config
         Application settings — drives all schedules and thresholds.
+    device
+        Target device.  Caller is responsible for moving the model.
     writer
         Optional TensorBoard writer.  ``None`` disables logging.
     resume_path
         Path to a ``checkpoint.pt`` to resume from.
     """
-    use_amp = config.precision == "16-mixed"
-    device_type = "cuda" if torch.cuda.is_available() else "mps"
+    use_amp = config.precision == "16-mixed" and device.type == "cuda"
     scaler: torch.amp.GradScaler | None = None
-    if use_amp and device_type == "cuda":
+    if use_amp:
         scaler = torch.amp.GradScaler("cuda")
 
     optimizer = AdamW(
@@ -143,7 +145,7 @@ def pretrain(
             x1, x2 = x1.to(x1.device), x2.to(x1.device)
             m1, m2 = m1.to(x1.device), m2.to(x1.device)
 
-            if use_amp and device_type == "cuda":
+            if use_amp:
                 with torch.amp.autocast("cuda"):
                     cl_loss, ss_loss = model(x1, x2, m1, m2, moco_m)
                     loss = config.lambda_c * cl_loss + ls * ss_loss
