@@ -74,6 +74,13 @@ class Settings(BaseSettings):
     pretrained_weights: str | None = None
     num_classes: int = 5
 
+    # ── pretraining ────────────────────────────────────────────────
+    dim: int = 256
+    mlp_dim: int = 4096
+    temperature: float = 1.0
+    saliency_threshold: float = 0.25
+    pool_mode: str = "max"
+
     # ── training ───────────────────────────────────────────────────
     batch_size: int = 32
     learning_rate: float = 1e-4
