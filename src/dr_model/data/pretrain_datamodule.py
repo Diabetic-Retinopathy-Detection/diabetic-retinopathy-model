@@ -1,0 +1,77 @@
+"""Pretraining data module.
+
+Loads the pickle index produced by ``preprocess-retina-datasets``,
+resolves relative paths, optionally subsamples, and exposes a single
+``train_dataloader()``.
+"""
+
+from __future__ import annotations
+
+import pickle
+import random
+from pathlib import Path
+
+from torch.utils.data import DataLoader
+
+from dr_model.config import Settings
+from dr_model.data.constants import EYEPACS_MEAN, EYEPACS_STD
+from dr_model.data.pair_dataset import DATA_AUG, PairDataset, TransformWithMask
+
+
+class PretrainDataModule:
+    """Plain-Python data module for saliency-guided pretraining.
+
+    Parameters
+    ----------
+    config : Settings
+        Application settings.  ``data_index_path`` must be set.
+    """
+
+    def __init__(self, config: Settings) -> None:
+        self.config = config
+        self.dataset: PairDataset | None = None
+
+    def setup(self) -> None:
+        """Load the pickle index and build the dataset."""
+        if self.config.data_index_path is None:
+            msg = "config.data_index_path must be set for pretraining"
+            raise ValueError(msg)
+
+        pkl_path = Path(self.config.data_index_path)
+        if not pkl_path.exists():
+            msg = f"Pickle index not found: {pkl_path}"
+            raise FileNotFoundError(msg)
+
+        with pkl_path.open("rb") as f:
+            index = pickle.load(f)  # noqa: S301
+
+        root = Path(index["root"])
+        raw_pairs: list[tuple[Path, Path]] = index["pairs"]
+        pairs = [(root / img, root / sal) for img, sal in raw_pairs]
+
+        if self.config.dataset_ratio < 1.0:
+            random.shuffle(pairs)
+            pairs = pairs[: int(len(pairs) * self.config.dataset_ratio)]
+
+        transform = TransformWithMask(
+            input_size=self.config.input_size,
+            mean=EYEPACS_MEAN,
+            std=EYEPACS_STD,
+            data_aug=DATA_AUG,
+        )
+        self.dataset = PairDataset(pairs, transform=transform)
+
+    def train_dataloader(self) -> DataLoader:
+        """Return the pretraining train dataloader."""
+        if self.dataset is None:
+            msg = "Call setup() before train_dataloader()"
+            raise RuntimeError(msg)
+
+        return DataLoader(
+            self.dataset,
+            batch_size=self.config.batch_size,
+            num_workers=self.config.num_workers,
+            pin_memory=True,
+            shuffle=True,
+            drop_last=True,
+        )
