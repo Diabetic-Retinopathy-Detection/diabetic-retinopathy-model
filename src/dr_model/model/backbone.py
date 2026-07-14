@@ -63,6 +63,22 @@ class Block(nn.Module):
         return x
 
 
+class PatchSampler:
+    """Select top-k patches by saliency score for saliency-guided masking."""
+
+    def __init__(self, patch_size: int, mask_ratio: float) -> None:
+        self.patch_size = patch_size
+        self.mask_ratio = mask_ratio
+
+    def __call__(self, pmap: Tensor) -> Tensor:
+        B, _C, H, W = pmap.shape
+        num_sample = int((1 - self.mask_ratio) * H * W)
+        feat_idx = pmap.flatten(1).argsort(descending=True)[:, :num_sample]
+        feat_idx += 1  # class embedding index
+        cls_idx = torch.zeros((B, 1), dtype=torch.int64, device=pmap.device)
+        return torch.cat([cls_idx, feat_idx], dim=1)
+
+
 class ViTBackbone(nn.Module):
     """Vision Transformer backbone for DR classification.
 
@@ -109,6 +125,8 @@ class ViTBackbone(nn.Module):
 
         self.head = nn.Linear(embed_dim, num_classes)
 
+        self.patch_sampler = PatchSampler(patch_size, mask_ratio=0.25)
+
         self._init_weights()
 
     def _init_weights(self) -> None:
@@ -122,6 +140,27 @@ class ViTBackbone(nn.Module):
             elif isinstance(m, nn.LayerNorm):
                 nn.init.ones_(m.weight)
                 nn.init.zeros_(m.bias)
+
+    def forward_features(self, x: Tensor, pmap: Tensor | None = None) -> Tensor:
+        """Run the encoder without the classification head.
+
+        When *pmap* is provided, applies saliency-guided patch masking: only
+        the top-k patches (by saliency score) are fed to the transformer
+        blocks.  This is used by the momentum encoder in pretraining.
+        """
+        x = self.patch_embed(x)
+        cls = self.cls_token.expand(x.shape[0], -1, -1)
+        x = torch.cat((cls, x), dim=1)
+        x = x + self.pos_embed
+
+        if pmap is not None:
+            active_idx = self.patch_sampler(pmap)
+            active_idx = active_idx.unsqueeze(-1).repeat(1, 1, x.shape[-1])
+            x = torch.gather(x, dim=1, index=active_idx)
+
+        x = self.pos_drop(x)
+        x = self.blocks(x)
+        return cast(Tensor, self.norm(x))
 
     def forward(self, x: Tensor) -> Tensor:
         """Run the full encoder + classification head.

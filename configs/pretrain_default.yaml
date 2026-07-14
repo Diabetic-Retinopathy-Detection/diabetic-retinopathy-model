@@ -10,6 +10,12 @@ attn_drop_rate: 0.0
 pretrained_weights: null
 num_classes: 5
 
+dim: 256
+mlp_dim: 4096
+temperature: 1.0
+saliency_threshold: 0.25
+pool_mode: max
+
 data_dir: null
 image_size: [224, 224]
 input_size: 224
