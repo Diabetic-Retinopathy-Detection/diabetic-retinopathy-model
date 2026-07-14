@@ -60,13 +60,11 @@ class Settings(BaseSettings):
     data_dir: Path | None = None
 
     # ── architecture ───────────────────────────────────────────────
-    # Standard ViT-B/16 configuration per Dosovitskiy et al. (2020).
     patch_size: int = 16
     embed_dim: int = 768
     depth: int = 12
     num_heads: int = 12
     mlp_ratio: float = 4.0
-    # Training-time only — inference uses model.eval() to disable these.
     drop_rate: float = 0.0
     attn_drop_rate: float = 0.0
 

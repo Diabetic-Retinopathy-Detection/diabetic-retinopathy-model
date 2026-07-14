@@ -83,26 +83,21 @@ class Pretrainer(nn.Module):
         dim = config.dim
         patch_size = config.patch_size
 
-        # encoders
         self.base_encoder = ViTBackbone(config)
         self.momentum_encoder = ViTBackbone(config)
 
-        # replace heads with projector MLPs
         hidden_dim = self.base_encoder.head.weight.shape[1]
         del self.base_encoder.head, self.momentum_encoder.head
         self.base_encoder.head = _build_mlp(3, hidden_dim, mlp_dim, dim)  # type: ignore[attr-defined]
         self.momentum_encoder.head = _build_mlp(3, hidden_dim, mlp_dim, dim)  # type: ignore[attr-defined]
 
-        # predictor (BYOL-style asymmetry)
         self.predictor = _build_mlp(2, dim, mlp_dim, dim)
 
-        # saliency segmentation head
         self.saliency_segmentor = nn.Sequential(
             nn.Conv2d(in_channels=hidden_dim, out_channels=patch_size**2, kernel_size=1),
             nn.PixelShuffle(upscale_factor=patch_size),
         )
 
-        # saliency pooling
         if config.pool_mode == "max":
             self.pool = nn.MaxPool2d(kernel_size=patch_size, stride=patch_size)
         elif config.pool_mode == "avg":
@@ -110,7 +105,6 @@ class Pretrainer(nn.Module):
         else:
             self.pool = None  # type: ignore[assignment]
 
-        # initialise momentum encoder from base encoder
         for param_b, param_m in zip(self.base_encoder.parameters(), self.momentum_encoder.parameters(), strict=True):
             param_m.data.copy_(param_b.data)
             param_m.requires_grad = False
@@ -135,7 +129,7 @@ class Pretrainer(nn.Module):
 
     def saliency_segmentation_loss(self, f: Tensor, m: Tensor) -> Tensor:
         """BCE loss between upsampled patch features and thresholded saliency."""
-        f = f[:, 1:]  # strip CLS token
+        f = f[:, 1:]
         m = (m > self.saliency_threshold).float()
 
         B, L, C = f.shape
@@ -178,7 +172,6 @@ class Pretrainer(nn.Module):
         mp1 = None if self.pool is None else self.pool(m1)
         mp2 = None if self.pool is None else self.pool(m2)
 
-        # base encoder forward
         t1, f1 = self._encode(self.base_encoder, x1)
         t2, f2 = self._encode(self.base_encoder, x2)
 

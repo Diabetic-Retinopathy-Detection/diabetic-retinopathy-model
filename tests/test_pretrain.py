@@ -62,9 +62,7 @@ class TestPatchSampler:
         sampler = PatchSampler(patch_size=16, mask_ratio=0.25)
         pmap = torch.randn(2, 1, 14, 14)
         idx = sampler(pmap)
-        # 14*14 = 196 patches, 75% = 147 sampled + 1 CLS = 148
         assert idx.shape == (2, 148)
-        # first column is CLS index (0)
         assert (idx[:, 0] == 0).all()
 
 
@@ -90,10 +88,8 @@ class TestPretrainerInit:
     def test_projectors_replaced(self) -> None:
         config = _config()
         model = Pretrainer(config)
-        # base_encoder.head is now a 3-layer MLP (Sequential)
         head = model.base_encoder.head  # type: ignore[union-attr]
         assert isinstance(head, torch.nn.Sequential)
-        # predictor exists
         assert isinstance(model.predictor, torch.nn.Sequential)
 
     def test_saliency_segmentor(self) -> None:
@@ -122,7 +118,6 @@ class TestPretrainerForward:
         config = _config()
         model = Pretrainer(config)
 
-        # perturb base encoder so EMA update produces a change
         with torch.no_grad():
             for p in model.base_encoder.parameters():
                 p.add_(0.1)
@@ -141,7 +136,6 @@ class TestViTBackboneFeatures:
         model = ViTBackbone(config)
         x = torch.randn(BATCH, 3, IMG_SIZE, IMG_SIZE)
         features = model.forward_features(x)
-        # 224/16 = 14, 14*14 = 196 patches + 1 CLS = 197
         assert features.shape == (BATCH, 197, 64)
 
     def test_forward_features_with_pmap(self) -> None:
@@ -150,5 +144,4 @@ class TestViTBackboneFeatures:
         x = torch.randn(BATCH, 3, IMG_SIZE, IMG_SIZE)
         pmap = torch.randn(BATCH, 1, 14, 14)
         features = model.forward_features(x, pmap=pmap)
-        # 75% of 196 = 147 patches + 1 CLS = 148
         assert features.shape == (BATCH, 148, 64)
