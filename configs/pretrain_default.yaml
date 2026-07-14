@@ -37,6 +37,7 @@ lambda_c: 1.0
 lambda_s: 10.0
 ss_decay: false
 save_every: 20
+seed: -1
 
 host: 0.0.0.0
 port: 8000
