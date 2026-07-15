@@ -28,14 +28,11 @@ from pydantic_settings import (
     YamlConfigSettingsSource,
 )
 
-YAML_FILE = os.getenv("DR_CONFIG_FILE", "configs/pretrain_default.yaml")
-
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        yaml_file=YAML_FILE,
     )
 
     @classmethod
@@ -47,11 +44,12 @@ class Settings(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
+        yaml_file = os.getenv("DR_CONFIG_FILE", "configs/pretrain_default.yaml")
         return (
             init_settings,
             env_settings,
             dotenv_settings,
-            YamlConfigSettingsSource(settings_cls),
+            YamlConfigSettingsSource(settings_cls, yaml_file=yaml_file),
         )
 
     # ── paths ──────────────────────────────────────────────────────

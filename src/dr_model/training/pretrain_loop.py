@@ -170,6 +170,12 @@ def pretrain(
         avg_cl = epoch_cl_loss / steps
         avg_ss = epoch_ss_loss / steps
 
+        print(
+            f"Epoch {epoch + 1}/{config.max_epochs} — "
+            f"cl_loss={avg_cl:.4f}  ss_loss={avg_ss:.4f}  "
+            f"total={avg_cl + avg_ss:.4f}  lr={lr:.6f}"
+        )
+
         if writer is not None:
             writer.add_scalar("loss/contrastive", avg_cl, epoch)
             writer.add_scalar("loss/saliency", avg_ss, epoch)
