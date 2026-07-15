@@ -57,7 +57,7 @@ class Settings(BaseSettings):
     # ── paths ──────────────────────────────────────────────────────
     checkpoint_dir: Path = Path("checkpoints")
     log_dir: Path = Path("logs")
-    data_dir: Path | None = None
+    data_dir: Path = Path("../data")
 
     # ── architecture ───────────────────────────────────────────────
     patch_size: int = 16

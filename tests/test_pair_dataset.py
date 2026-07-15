@@ -28,19 +28,18 @@ def _make_saliency(path: Path, size: tuple[int, int] = (INPUT_SIZE, INPUT_SIZE))
     np.save(str(path), arr)
 
 
-def _make_index(tmp_path: Path, n: int, root: Path | None = None) -> Path:
-    if root is None:
-        root = tmp_path / "data"
+def _make_index(tmp_path: Path, n: int) -> Path:
+    data_dir = tmp_path / "data"
     pairs = []
     for i in range(n):
         name = f"img_{i}"
-        _make_image(root / "cropped" / f"{name}.jpeg")
-        _make_saliency(root / "saliency" / f"{name}.npy")
+        _make_image(data_dir / "cropped" / f"{name}.jpeg")
+        _make_saliency(data_dir / "saliency" / f"{name}.npy")
         pairs.append((Path(f"cropped/{name}.jpeg"), Path(f"saliency/{name}.npy")))
 
     index_path = tmp_path / "index.pkl"
     with index_path.open("wb") as f:
-        pickle.dump({"root": str(root), "pairs": pairs}, f)
+        pickle.dump({"pairs": pairs}, f)
     return index_path
 
 
@@ -55,8 +54,8 @@ class TestPairDataset:
 
         with index_path.open("rb") as f:
             index = pickle.load(f)  # noqa: S301
-        root = Path(index["root"])
-        pairs = [(root / img, root / sal) for img, sal in index["pairs"]]
+        data_dir = tmp_path / "data"
+        pairs = [(data_dir / img, data_dir / sal) for img, sal in index["pairs"]]
 
         ds = PairDataset(pairs, transform=transform)
         img_stu, img_tea, mask_stu, mask_tea = ds[0]
@@ -74,8 +73,8 @@ class TestPairDataset:
 
         with index_path.open("rb") as f:
             index = pickle.load(f)  # noqa: S301
-        root = Path(index["root"])
-        pairs = [(root / img, root / sal) for img, sal in index["pairs"]]
+        data_dir = tmp_path / "data"
+        pairs = [(data_dir / img, data_dir / sal) for img, sal in index["pairs"]]
 
         ds = PairDataset(pairs, transform=transform)
         img_stu, img_tea, _, _ = ds[0]
@@ -89,8 +88,8 @@ class TestPairDataset:
 
         with index_path.open("rb") as f:
             index = pickle.load(f)  # noqa: S301
-        root = Path(index["root"])
-        pairs = [(root / img, root / sal) for img, sal in index["pairs"]]
+        data_dir = tmp_path / "data"
+        pairs = [(data_dir / img, data_dir / sal) for img, sal in index["pairs"]]
 
         ds = PairDataset(pairs, transform=transform)
         _, _, mask_stu, mask_tea = ds[0]
@@ -106,8 +105,8 @@ class TestPairDataset:
 
         with index_path.open("rb") as f:
             index = pickle.load(f)  # noqa: S301
-        root = Path(index["root"])
-        pairs = [(root / img, root / sal) for img, sal in index["pairs"]]
+        data_dir = tmp_path / "data"
+        pairs = [(data_dir / img, data_dir / sal) for img, sal in index["pairs"]]
 
         ds = PairDataset(pairs, transform=transform)
 
@@ -150,8 +149,8 @@ class TestPairDataset:
 
         with index_path.open("rb") as f:
             index = pickle.load(f)  # noqa: S301
-        root = Path(index["root"])
-        pairs = [(root / img, root / sal) for img, sal in index["pairs"]]
+        data_dir = tmp_path / "data"
+        pairs = [(data_dir / img, data_dir / sal) for img, sal in index["pairs"]]
 
         ds = PairDataset(pairs, transform=transform)
         assert len(ds) == 5
@@ -172,7 +171,12 @@ class TestPretrainDataModule:
 
     def test_dataset_ratio(self, tmp_path: Path) -> None:
         index_path = _make_index(tmp_path, 20)
-        config = Settings(data_index_path=index_path, dataset_ratio=0.5, input_size=INPUT_SIZE)
+        config = Settings(
+            data_index_path=index_path,
+            data_dir=tmp_path / "data",
+            dataset_ratio=0.5,
+            input_size=INPUT_SIZE,
+        )
 
         random.seed(42)
         dm = PretrainDataModule(config)
@@ -183,7 +187,12 @@ class TestPretrainDataModule:
 
     def test_full_ratio(self, tmp_path: Path) -> None:
         index_path = _make_index(tmp_path, 10)
-        config = Settings(data_index_path=index_path, dataset_ratio=1.0, input_size=INPUT_SIZE)
+        config = Settings(
+            data_index_path=index_path,
+            data_dir=tmp_path / "data",
+            dataset_ratio=1.0,
+            input_size=INPUT_SIZE,
+        )
 
         dm = PretrainDataModule(config)
         dm.setup()
@@ -195,6 +204,7 @@ class TestPretrainDataModule:
         index_path = _make_index(tmp_path, 8)
         config = Settings(
             data_index_path=index_path,
+            data_dir=tmp_path / "data",
             dataset_ratio=1.0,
             input_size=INPUT_SIZE,
             batch_size=4,
