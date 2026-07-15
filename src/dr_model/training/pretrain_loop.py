@@ -142,8 +142,8 @@ def pretrain(
             moco_m = _adjust_momentum(config, t)
             ls = _adjust_lambda_s(config, t) if config.ss_decay else config.lambda_s
 
-            x1, x2 = x1.to(x1.device), x2.to(x1.device)
-            m1, m2 = m1.to(x1.device), m2.to(x1.device)
+            x1, x2 = x1.to(device), x2.to(device)
+            m1, m2 = m1.to(device), m2.to(device)
 
             if use_amp:
                 with torch.amp.autocast("cuda"):

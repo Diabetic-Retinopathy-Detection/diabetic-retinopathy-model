@@ -32,3 +32,16 @@ Settings(image_size=(224, 192)).image_size  # (224, 192)
 4. Class defaults
 
 Override the YAML path via the `DR_CONFIG_FILE` environment variable.
+
+## data_dir
+
+Absolute path to the shared data directory containing images and saliency maps.
+Override via YAML `data_dir:` or environment variable `DR_DATA_DIR`.
+
+See [Modules — Pretraining Data](modules.md#pretraining-data) for the directory layout.
+
+## seed
+
+Random seed for reproducible training. Defaults to `-1` (disabled), matching SSiT convention. When `seed >= 0`, `setup_determinism()` is called before model creation — this sets PyTorch/CUDA/cuDNN seeds and enables deterministic algorithms.
+
+Override via CLI: `--seed 42` or YAML `seed: 42`.
