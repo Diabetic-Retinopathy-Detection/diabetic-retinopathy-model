@@ -53,14 +53,25 @@ def main(argv: list[str] | None = None) -> int:
         default="auto",
         help="Device: auto, cpu, cuda, mps.",
     )
+    parser.add_argument(
+        "--data-index-path",
+        type=str,
+        default=None,
+        help="Path to pretraining pickle index (overrides config).",
+    )
     args = parser.parse_args(argv)
 
     if args.config is not None:
         os.environ["DR_CONFIG_FILE"] = args.config
 
     config = Settings()
+    updates: dict[str, object] = {}
     if args.seed is not None:
-        config = config.model_copy(update={"seed": args.seed})
+        updates["seed"] = args.seed
+    if args.data_index_path is not None:
+        updates["data_index_path"] = Path(args.data_index_path)
+    if updates:
+        config = config.model_copy(update=updates)
     device = resolve_device(args.device)
     if config.seed >= 0:
         setup_determinism(config.seed)
