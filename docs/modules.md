@@ -126,6 +126,27 @@ TensorBoard logging when a `SummaryWriter` is provided: contrastive loss, salien
 
 ## Training CLI
 
+### Running pretraining
+
+```bash
+uv run dr-train --phase pretrain --device mps --seed 42
+```
+
+Loads `Settings` from the YAML config (default: `configs/pretrain_default.yaml`), builds the `PretrainDataModule` + `Pretrainer`, and runs the contrastive-saliency loop. Key flags: `--device`, `--seed`, `--data-index-path`, `--config`, `--resume`.
+
+### Training reports
+
+Export TensorBoard scalars to a PDF report:
+
+```bash
+uv run dr-report --logdir logs/vit_p16_e768_d12_h12_c5/
+uv run dr-report --logdir logs/vit_p16_e768_d12_h12_c5/ --output report.pdf
+```
+
+Generates a multi-page PDF with loss curves (contrastive, saliency, total), learning rate schedule, momentum schedule, and a summary page with final/best metrics.
+
+::: dr_model.training.report
+
 ### Pretraining loop
 
 `pretrain(model, train_dataloader, config, device=..., writer=..., resume_path=...)` runs the full MoCo v3 contrastive + saliency segmentation pretraining loop.

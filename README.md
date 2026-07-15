@@ -132,6 +132,15 @@ DiabeticRetinopathy/
 
 Set `data_dir` in `configs/pretrain_default.yaml` or as an environment variable (`DR_DATA_DIR`) to point at the data directory on your machine.
 
+## Reports
+
+Export TensorBoard training data to a PDF report:
+
+```bash
+uv run dr-report --logdir logs/vit_p16_e768_d12_h12_c5/
+uv run dr-report --logdir logs/vit_p16_e768_d12_h12_c5/ --output my_report.pdf
+```
+
 ## Testing
 
 ```bash

@@ -32,11 +32,13 @@ dependencies = [
     "opencv-contrib-python-headless>=4.8.0",
     "tqdm>=4.66.0",
     "tensorboard>=2.21.0",
+    "matplotlib>=3.8.0",
 ]
 
 [project.scripts]
 dr-train = "dr_model.training.cli:main"
 dr-serve = "dr_model.serve.app:main"
+dr-report = "dr_model.training.report:main"
 
 [project.urls]
 Homepage = "https://diabetic-retinopathy-detection.github.io/diabetic-retinopathy-model/"
