@@ -45,9 +45,9 @@ class PretrainDataModule:
         with pkl_path.open("rb") as f:
             index = pickle.load(f)  # noqa: S301
 
-        root = Path(index["root"])
+        data_dir = Path(self.config.data_dir)
         raw_pairs: list[tuple[Path, Path]] = index["pairs"]
-        pairs = [(root / img, root / sal) for img, sal in raw_pairs]
+        pairs = [(data_dir / img, data_dir / sal) for img, sal in raw_pairs]
 
         if self.config.dataset_ratio < 1.0:
             random.shuffle(pairs)

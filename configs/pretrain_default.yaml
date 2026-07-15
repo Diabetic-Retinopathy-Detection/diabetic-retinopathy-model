@@ -15,7 +15,7 @@ temperature: 0.2
 saliency_threshold: 0.25
 pool_mode: max
 
-data_dir: null
+data_dir: ../data
 image_size: [224, 224]
 input_size: 224
 data_index_path: ../data/dataset.pkl
