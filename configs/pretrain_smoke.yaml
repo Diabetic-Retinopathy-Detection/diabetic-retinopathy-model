@@ -1,0 +1,42 @@
+# Smoke test config: tiny model, 80 images, 5 epochs.
+# Intended for quick local validation — NOT for real training.
+patch_size: 4
+embed_dim: 32
+depth: 2
+num_heads: 2
+mlp_ratio: 4.0
+drop_rate: 0.0
+attn_drop_rate: 0.0
+pretrained_weights: null
+num_classes: 5
+dim: 16
+mlp_dim: 64
+temperature: 1.0
+saliency_threshold: 0.25
+pool_mode: max
+data_dir: /Users/k2366861/DiabeticRetinopathy/data
+image_size: [224, 224]
+input_size: 224
+data_index_path: /Users/k2366861/DiabeticRetinopathy/data/smoke_dataset.pkl
+dataset_ratio: 1.0
+num_workers: 0
+train_split: 0.8
+val_split: 0.1
+batch_size: 8
+learning_rate: 0.0001
+max_epochs: 50
+gradient_clip_val: 1.0
+accumulate_grad_batches: 1
+precision: "32-true"
+warmup_epochs: 4
+momentum_base: 0.99
+momentum_max: 1.0
+lambda_c: 1.0
+lambda_s: 10.0
+ss_decay: false
+save_every: 5
+seed: -1
+host: 0.0.0.0
+port: 8000
+workers: 1
+max_batch_size: 16
