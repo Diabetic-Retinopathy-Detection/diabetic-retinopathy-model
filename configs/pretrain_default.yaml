@@ -43,3 +43,8 @@ host: 0.0.0.0
 port: 8000
 workers: 1
 max_batch_size: 16
+
+mlflow: true
+mlflow_tracking_uri: null
+mlflow_experiment_name: dr-pretrain
+tensorboard: true

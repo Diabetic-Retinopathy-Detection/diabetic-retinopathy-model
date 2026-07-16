@@ -24,11 +24,11 @@ train_split: 0.8
 val_split: 0.1
 batch_size: 8
 learning_rate: 0.0001
-max_epochs: 50
+max_epochs: 1
 gradient_clip_val: 1.0
 accumulate_grad_batches: 1
 precision: "32-true"
-warmup_epochs: 4
+warmup_epochs: 1
 momentum_base: 0.99
 momentum_max: 1.0
 lambda_c: 1.0
@@ -40,3 +40,8 @@ host: 0.0.0.0
 port: 8000
 workers: 1
 max_batch_size: 16
+
+mlflow: true
+mlflow_tracking_uri: null
+mlflow_experiment_name: dr-pretrain-smoke
+tensorboard: true
