@@ -125,3 +125,7 @@ logs/**
 *.ckpt
 lightning_logs/
 wandb/
+mlflow.db
+mlflow.db-shm
+mlflow.db-wal
+mlruns/
