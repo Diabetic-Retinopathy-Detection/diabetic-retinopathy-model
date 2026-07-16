@@ -59,6 +59,12 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Path to pretraining pickle index (overrides config).",
     )
+    parser.add_argument(
+        "--data-dir",
+        type=str,
+        default=None,
+        help="Root data directory containing cropped/ and saliency/ (overrides config).",
+    )
     args = parser.parse_args(argv)
 
     if args.config is not None:
@@ -70,6 +76,8 @@ def main(argv: list[str] | None = None) -> int:
         updates["seed"] = args.seed
     if args.data_index_path is not None:
         updates["data_index_path"] = Path(args.data_index_path)
+    if args.data_dir is not None:
+        updates["data_dir"] = Path(args.data_dir)
     if updates:
         config = config.model_copy(update=updates)
     device = resolve_device(args.device)
