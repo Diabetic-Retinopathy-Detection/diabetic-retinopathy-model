@@ -193,12 +193,19 @@ Generates a multi-page PDF with loss curves (contrastive, saliency, total), lear
 - **AMP**: enabled when `precision == "16-mixed"` and `device.type == "cuda"`.
 - **Checkpointing**: interval saves at `save_every` epochs + final epoch. Saves both full training state (`checkpoint.pt`) and encoder-only weights (`epoch_{N}_encoder.pt`).
 - **TensorBoard**: logs `loss/contrastive`, `loss/saliency`, `loss/total`, `lr`, `momentum_m` per epoch.
+- **MLflow**: logs the same 5 metrics per epoch, plus all Settings fields as params (when `config.mlflow == True`).
 
 The caller resolves the device and moves the model before calling `pretrain()`. This keeps device logic out of the loop and simplifies testing.
 
 ::: dr_model.training.pretrain_loop
 
 ::: dr_model.training.cli
+
+## Experiment Logging
+
+Dual logging to MLflow (run comparison) and TensorBoard (live curves). Both record the same metrics — see [Experiment Tracking](experiment-tracking.md) for usage.
+
+::: dr_model.logging
 
 ## Utils
 
