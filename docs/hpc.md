@@ -98,7 +98,7 @@ tail -f /scratch/users/$USER/tb-logs/<jobid>.out
 ### SLURM batch script example
 
 ```bash
-#!/bin/bash
+#!/bin/bash -l
 #SBATCH --job-name=dr-pretrain
 #SBATCH --partition=gpu
 #SBATCH --qos=public_gpu
