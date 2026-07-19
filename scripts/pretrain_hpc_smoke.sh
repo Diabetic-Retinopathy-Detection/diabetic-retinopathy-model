@@ -1,18 +1,18 @@
 #!/bin/bash -l
-#SBATCH --job-name=dr-pretrain
+#SBATCH --job-name=dr-smoke
 #SBATCH --partition=gpu
 #SBATCH --qos=public_gpu
 #SBATCH --gres=gpu:1
-#SBATCH --time=24:00:00
-#SBATCH --mem=64G
-#SBATCH --cpus-per-task=16
+#SBATCH --time=00:05:00
+#SBATCH --mem=16G
+#SBATCH --cpus-per-task=4
 #SBATCH --output=/scratch/users/%u/tb-logs/%j.out
 #SBATCH --error=/scratch/users/%u/tb-logs/%j.err
 
-# ─── Full ViT-B/16 pretraining on HPC ─────────────────────────────
+# ─── Smoke test: verify full pipeline on HPC ────────────────────────
 #
 # Usage:
-#   sbatch scripts/pretrain_hpc.sh
+#   sbatch scripts/pretrain_hpc_smoke.sh
 #
 # Monitor:
 #   squeue -u $USER
@@ -35,7 +35,7 @@ singularity exec --nv --writable-tmpfs \
     "${SIF}" \
     uv run python -m dr_model.training.cli \
         --phase pretrain --device cuda \
-        --config configs/pretrain_default.yaml \
-        --data-index-path /app/data/dataset.pkl \
+        --config configs/pretrain_smoke.yaml \
+        --data-index-path /app/data/smoke_dataset.pkl \
         --data-dir /app/data \
         --seed 42
