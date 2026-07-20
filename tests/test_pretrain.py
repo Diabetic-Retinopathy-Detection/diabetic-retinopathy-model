@@ -88,7 +88,7 @@ class TestPretrainerInit:
     def test_projectors_replaced(self) -> None:
         config = _config()
         model = Pretrainer(config)
-        head = model.base_encoder.head  # type: ignore[union-attr]
+        head = model.base_encoder.head
         assert isinstance(head, torch.nn.Sequential)
         assert isinstance(model.predictor, torch.nn.Sequential)
 
