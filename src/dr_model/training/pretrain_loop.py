@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from torch.utils.tensorboard import SummaryWriter
 
 
-def _adjust_lr(optimizer: AdamW, config: Settings, step_ratio: float) -> float:
+def _adjust_lr(optimizer: torch.optim.Optimizer, config: Settings, step_ratio: float) -> float:
     """Linear warmup then cosine decay to zero."""
     if step_ratio < config.warmup_epochs:
         lr = config.learning_rate * step_ratio / config.warmup_epochs
@@ -120,11 +120,11 @@ def pretrain(
     start_epoch = 0
     if resume_path is not None and resume_path.exists():
         ckpt = torch.load(resume_path, map_location="cpu", weights_only=False)
-        model.load_state_dict(ckpt["state_dict"])  # type: ignore[arg-type]
-        optimizer.load_state_dict(ckpt["optimizer"])  # type: ignore[arg-type]
-        start_epoch = ckpt["epoch"] + 1  # type: ignore[index]
+        model.load_state_dict(ckpt["state_dict"])
+        optimizer.load_state_dict(ckpt["optimizer"])
+        start_epoch = ckpt["epoch"] + 1
         if scaler is not None and "scaler" in ckpt:
-            scaler.load_state_dict(ckpt["scaler"])  # type: ignore[arg-type]
+            scaler.load_state_dict(ckpt["scaler"])
 
     save_dir = config.checkpoint_dir / config.model_name
     save_dir.mkdir(parents=True, exist_ok=True)
