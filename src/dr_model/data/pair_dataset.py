@@ -89,7 +89,7 @@ class TransformWithMask:
         self.grayscale = transforms.RandomGrayscale(p=0.2)
         self.rotation = transforms.RandomRotation(degrees=self.degrees)
 
-    def _resized_crop_with_mask(
+    def _resized_crop_with_mask(  # type: ignore[no-any-unimported]
         self, tf: transforms.RandomResizedCrop, img: Image.Image, mask: Image.Image
     ) -> tuple[Image.Image, Image.Image]:
         assert isinstance(tf, transforms.RandomResizedCrop)  # noqa: S101
@@ -98,7 +98,7 @@ class TransformWithMask:
         mask = F.resized_crop(mask, i, j, h, w, tf.size, interpolation=F.InterpolationMode.NEAREST)
         return img, mask
 
-    def _rotation_with_mask(
+    def _rotation_with_mask(  # type: ignore[no-any-unimported]
         self, tf: transforms.RandomRotation, img: Image.Image, mask: Image.Image, p: float
     ) -> tuple[Image.Image, Image.Image]:
         assert isinstance(tf, transforms.RandomRotation)  # noqa: S101
