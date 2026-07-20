@@ -88,8 +88,8 @@ class Pretrainer(nn.Module):
 
         hidden_dim = self.base_encoder.head.weight.shape[1]
         del self.base_encoder.head, self.momentum_encoder.head
-        self.base_encoder.head = _build_mlp(3, hidden_dim, mlp_dim, dim)  # type: ignore[attr-defined]
-        self.momentum_encoder.head = _build_mlp(3, hidden_dim, mlp_dim, dim)  # type: ignore[attr-defined]
+        self.base_encoder.head = _build_mlp(3, hidden_dim, mlp_dim, dim)  # type: ignore[assignment]
+        self.momentum_encoder.head = _build_mlp(3, hidden_dim, mlp_dim, dim)  # type: ignore[assignment]
 
         self.predictor = _build_mlp(2, dim, mlp_dim, dim)
 
@@ -101,7 +101,7 @@ class Pretrainer(nn.Module):
         if config.pool_mode == "max":
             self.pool = nn.MaxPool2d(kernel_size=patch_size, stride=patch_size)
         elif config.pool_mode == "avg":
-            self.pool = nn.AvgPool2d(kernel_size=patch_size, stride=patch_size)
+            self.pool = nn.AvgPool2d(kernel_size=patch_size, stride=patch_size)  # type: ignore[assignment]
         else:
             self.pool = None  # type: ignore[assignment]
 
@@ -142,7 +142,7 @@ class Pretrainer(nn.Module):
     def _encode(self, encoder: ViTBackbone, x: Tensor, pmap: Tensor | None = None) -> tuple[Tensor, Tensor]:
         """Forward through encoder, returning (projection, full_features)."""
         features = encoder.forward_features(x, pmap=pmap)
-        projection = encoder.head(features[:, 0])  # type: ignore[union-attr]
+        projection = encoder.head(features[:, 0])
         return projection, features
 
     def forward(
