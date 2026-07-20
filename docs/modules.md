@@ -81,6 +81,37 @@ root directory, making the index portable across machines.
 
 ::: dr_model.serve.app
 
-## Training
+## Pretraining Loop
+
+Runs the full pretraining loop for the saliency-guided MoCo v3 contrastive objective.
+Follows the schedule and optimiser design from the SSiT paper.
+
+### Schedules
+
+All schedules are driven by fractional training progress `t = step_ratio / max_epochs`:
+
+- **Learning rate**: linear warmup from 0 to `learning_rate` over `warmup_epochs`, then cosine decay to zero.
+- **Momentum**: cosine ramp from `momentum_base` (0.99) to `momentum_max` (1.0) for the teacher EMA update.
+- **Saliency weight** (`lambda_s`): optional cosine decay from `lambda_s` to zero when `ss_decay=True`. Disabled by default.
+
+### Checkpoints
+
+- Full training state (model, optimizer, epoch, scaler) saved to `checkpoint.pt` every `save_every` epochs.
+- Encoder-only weights saved to `epoch_{N}_encoder.pt` at the same intervals.
+- Final checkpoint always saved after the last epoch.
+- `resume_path` restores model, optimizer, epoch, and scaler for interrupted runs.
+
+### Mixed precision
+
+- CUDA: full AMP support via `torch.amp.GradScaler`.
+- MPS/CPU: no scaler (PyTorch limitation). Precision flag is ignored.
+
+### Logging
+
+TensorBoard logging when a `SummaryWriter` is provided: contrastive loss, saliency loss, total loss, learning rate, and momentum per epoch.
+
+::: dr_model.training.pretrain_loop
+
+## Training CLI
 
 ::: dr_model.training.cli
