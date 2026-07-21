@@ -102,6 +102,12 @@ class Settings(BaseSettings):
     train_split: float = 0.8
     val_split: float = 0.1
 
+    # ── experiment tracking ─────────────────────────────────────
+    mlflow: bool = True
+    mlflow_tracking_uri: str | None = None
+    mlflow_experiment_name: str = "dr-pretrain"
+    tensorboard: bool = True
+
     # ── serving ────────────────────────────────────────────────────
     host: str = "0.0.0.0"  # noqa: S104
     port: int = 8000

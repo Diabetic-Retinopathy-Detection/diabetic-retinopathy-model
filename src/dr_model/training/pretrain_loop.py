@@ -59,6 +59,44 @@ def _adjust_lambda_s(config: Settings, t: float) -> float:
     return config.lambda_s * 0.5 * (1.0 + math.cos(math.pi * t))
 
 
+def _log_epoch(
+    epoch: int,
+    config: Settings,
+    avg_cl: float,
+    avg_ss: float,
+    lr: float,
+    moco_m: float,
+    writer: SummaryWriter | None,
+) -> None:
+    """Print and log epoch metrics to TensorBoard and MLflow."""
+    print(
+        f"Epoch {epoch + 1}/{config.max_epochs} — "
+        f"cl_loss={avg_cl:.4f}  ss_loss={avg_ss:.4f}  "
+        f"total={avg_cl + avg_ss:.4f}  lr={lr:.6f}"
+    )
+
+    if writer is not None:
+        writer.add_scalar("loss/contrastive", avg_cl, epoch)
+        writer.add_scalar("loss/saliency", avg_ss, epoch)
+        writer.add_scalar("loss/total", avg_cl + avg_ss, epoch)
+        writer.add_scalar("lr", lr, epoch)
+        writer.add_scalar("momentum_m", moco_m, epoch)
+
+    if config.mlflow:
+        import mlflow
+
+        mlflow.log_metrics(
+            {
+                "loss/contrastive": avg_cl,
+                "loss/saliency": avg_ss,
+                "loss/total": avg_cl + avg_ss,
+                "lr": lr,
+                "momentum_m": moco_m,
+            },
+            step=epoch,
+        )
+
+
 def _save_checkpoint(
     path: Path,
     epoch: int,
@@ -170,18 +208,7 @@ def pretrain(
         avg_cl = epoch_cl_loss / steps
         avg_ss = epoch_ss_loss / steps
 
-        print(
-            f"Epoch {epoch + 1}/{config.max_epochs} — "
-            f"cl_loss={avg_cl:.4f}  ss_loss={avg_ss:.4f}  "
-            f"total={avg_cl + avg_ss:.4f}  lr={lr:.6f}"
-        )
-
-        if writer is not None:
-            writer.add_scalar("loss/contrastive", avg_cl, epoch)
-            writer.add_scalar("loss/saliency", avg_ss, epoch)
-            writer.add_scalar("loss/total", avg_cl + avg_ss, epoch)
-            writer.add_scalar("lr", lr, epoch)
-            writer.add_scalar("momentum_m", moco_m, epoch)
+        _log_epoch(epoch, config, avg_cl, avg_ss, lr, moco_m, writer)
 
         if (epoch + 1) % config.save_every == 0 and (epoch + 1) < config.max_epochs:
             _save_checkpoint(save_dir / "checkpoint.pt", epoch, model, optimizer, scaler)
