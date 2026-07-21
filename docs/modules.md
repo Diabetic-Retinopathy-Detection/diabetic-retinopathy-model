@@ -162,7 +162,50 @@ The caller resolves the device and moves the model before calling `pretrain()`. 
 
 ::: dr_model.training.pretrain_loop
 
+### Running pretraining
+
+```bash
+uv run dr-train --phase pretrain --device mps --seed 42
+```
+
+Loads `Settings` from the YAML config (default: `configs/pretrain_default.yaml`), builds the `PretrainDataModule` + `Pretrainer`, and runs the contrastive-saliency loop. Key flags: `--device`, `--seed`, `--data-index-path`, `--config`, `--resume`.
+
+### Training reports
+
+Export TensorBoard scalars to a PDF report:
+
+```bash
+uv run dr-report --logdir logs/vit_p16_e768_d12_h12_c5/
+uv run dr-report --logdir logs/vit_p16_e768_d12_h12_c5/ --output report.pdf
+```
+
+Generates a multi-page PDF with loss curves (contrastive, saliency, total), learning rate schedule, momentum schedule, and a summary page with final/best metrics.
+
+::: dr_model.training.report
+
+### Pretraining loop
+
+`pretrain(model, train_dataloader, config, device=..., writer=..., resume_path=...)` runs the full MoCo v3 contrastive + saliency segmentation pretraining loop.
+
+- **LR schedule**: linear warmup for `warmup_epochs`, then cosine decay to zero.
+- **Momentum schedule**: cosine ramp from `momentum_base` to `momentum_max` (fractional progress `t ∈ [0, 1]`).
+- **Lambda_s schedule**: optional cosine decay of saliency loss weight (enabled via `ss_decay`).
+- **AMP**: enabled when `precision == "16-mixed"` and `device.type == "cuda"`.
+- **Checkpointing**: interval saves at `save_every` epochs + final epoch. Saves both full training state (`checkpoint.pt`) and encoder-only weights (`epoch_{N}_encoder.pt`).
+- **TensorBoard**: logs `loss/contrastive`, `loss/saliency`, `loss/total`, `lr`, `momentum_m` per epoch.
+- **MLflow**: logs the same 5 metrics per epoch, plus all Settings fields as params (when `config.mlflow == True`).
+
+The caller resolves the device and moves the model before calling `pretrain()`. This keeps device logic out of the loop and simplifies testing.
+
+::: dr_model.training.pretrain_loop
+
 ::: dr_model.training.cli
+
+## Experiment Logging
+
+Dual logging to MLflow (run comparison) and TensorBoard (live curves). Both record the same metrics — see [Experiment Tracking](experiment-tracking.md) for usage.
+
+::: dr_model.logging
 
 ## Utils
 

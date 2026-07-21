@@ -6,12 +6,12 @@ import sys
 from pathlib import Path
 
 import torch
-from torch.utils.tensorboard import SummaryWriter
 
 os.environ.setdefault("DR_CONFIG_FILE", "configs/pretrain_default.yaml")
 
 from dr_model.config import Settings
 from dr_model.data.pretrain_datamodule import PretrainDataModule
+from dr_model.logging import end_mlflow_run, init_mlflow_run, init_tensorboard_logger
 from dr_model.model.pretrain import Pretrainer
 from dr_model.training.pretrain_loop import pretrain
 from dr_model.utils import resolve_device, setup_determinism
@@ -90,20 +90,34 @@ def _run_pretrain(config: Settings, device: torch.device, resume: str | None) ->
 
     model = Pretrainer(config).to(device)
 
-    log_dir = config.log_dir / config.model_name
-    log_dir.mkdir(parents=True, exist_ok=True)
-    writer = SummaryWriter(log_dir=str(log_dir))
+    if config.mlflow:
+        init_mlflow_run(
+            config,
+            experiment_name=config.mlflow_experiment_name,
+            run_name_prefix="pretrain",
+        )
+
+    writer = None
+    if config.tensorboard:
+        writer = init_tensorboard_logger(config, run_name=f"pretrain_{config.model_name}")
 
     resume_path = Path(resume) if resume else None
 
-    pretrain(
-        model=model,
-        train_dataloader=dl,
-        config=config,
-        device=device,
-        writer=writer,
-        resume_path=resume_path,
-    )
+    try:
+        pretrain(
+            model=model,
+            train_dataloader=dl,
+            config=config,
+            device=device,
+            writer=writer,
+            resume_path=resume_path,
+        )
+    finally:
+        if writer is not None:
+            writer.close()
+        if config.mlflow:
+            end_mlflow_run()
+
     print("Pretraining complete.")
     return 0
 
