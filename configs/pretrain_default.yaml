@@ -12,6 +12,9 @@ num_classes: 5
 
 data_dir: null
 image_size: [224, 224]
+input_size: 224
+data_index_path: data_index/pretraining_dataset.pkl
+dataset_ratio: 1.0
 num_workers: 4
 train_split: 0.8
 val_split: 0.1

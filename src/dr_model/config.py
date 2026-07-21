@@ -84,6 +84,9 @@ class Settings(BaseSettings):
 
     # ── data ───────────────────────────────────────────────────────
     image_size: tuple[int, int] = (224, 224)
+    input_size: int = 224
+    data_index_path: Path | None = None
+    dataset_ratio: float = 1.0
     num_workers: int = 4
     train_split: float = 0.8
     val_split: float = 0.1

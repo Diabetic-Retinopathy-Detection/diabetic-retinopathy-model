@@ -38,7 +38,9 @@ dr-train = "dr_model.training.cli:main"
 dr-serve = "dr_model.serve.app:main"
 
 [project.urls]
+Homepage = "https://diabetic-retinopathy-detection.github.io/diabetic-retinopathy-model/"
 Repository = "https://github.com/Diabetic-Retinopathy-Detection/diabetic-retinopathy-model"
+Documentation = "https://diabetic-retinopathy-detection.github.io/diabetic-retinopathy-model/"
 
 [dependency-groups]
 dev = [
@@ -50,6 +52,9 @@ dev = [
     "mypy>=1.19.1",
     "pytest-cov>=7.0.0",
     "ruff>=0.15.7",
+    "mkdocs>=1.6.1",
+    "mkdocs-material>=9.7.6",
+    "mkdocstrings[python]>=1.0.3",
 ]
 
 [build-system]
@@ -69,6 +74,10 @@ check_untyped_defs = true
 warn_return_any = true
 warn_unused_ignores = true
 show_error_codes = true
+
+[[tool.mypy.overrides]]
+module = "torchvision.transforms"
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
