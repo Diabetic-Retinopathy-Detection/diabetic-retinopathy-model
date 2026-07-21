@@ -102,7 +102,7 @@ def _save_checkpoint(
     epoch: int,
     model: Pretrainer,
     optimizer: AdamW,
-    scaler: torch.amp.GradScaler | None,
+    scaler: torch.cuda.amp.GradScaler | None,
 ) -> None:
     """Persist full training state for potential resume."""
     state: dict[str, object] = {
@@ -147,9 +147,9 @@ def pretrain(
         Path to a ``checkpoint.pt`` to resume from.
     """
     use_amp = config.precision == "16-mixed" and device.type == "cuda"
-    scaler: torch.amp.GradScaler | None = None
+    scaler: torch.cuda.amp.GradScaler | None = None
     if use_amp:
-        scaler = torch.amp.GradScaler("cuda")
+        scaler = torch.cuda.amp.GradScaler()
 
     optimizer = AdamW(
         model.parameters(),
