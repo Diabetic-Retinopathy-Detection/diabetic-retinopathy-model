@@ -116,6 +116,31 @@ Settings(image_size=(224, 192)).image_size  # (224, 192)
 
 Override the YAML path via the `DR_CONFIG_FILE` environment variable.
 
+## Data
+
+Preprocessed images live in a shared directory outside this repo:
+
+```
+DiabeticRetinopathy/
+├── data/               # shared, gitignored
+│   ├── cropped/        # JPEG fundus crops
+│   ├── saliency/       # .npy saliency maps
+│   └── dataset.pkl     # image-saliency pair index (relative paths)
+├── preprocess-retina-datasets/
+└── diabetic-retinopathy-model/   # this repo
+```
+
+Set `data_dir` in `configs/pretrain_default.yaml` or as an environment variable (`DR_DATA_DIR`) to point at the data directory on your machine.
+
+## Reports
+
+Export TensorBoard training data to a PDF report:
+
+```bash
+uv run dr-report --logdir logs/vit_p16_e768_d12_h12_c5/
+uv run dr-report --logdir logs/vit_p16_e768_d12_h12_c5/ --output my_report.pdf
+```
+
 ## Testing
 
 ```bash
