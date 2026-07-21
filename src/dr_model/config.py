@@ -28,14 +28,11 @@ from pydantic_settings import (
     YamlConfigSettingsSource,
 )
 
-YAML_FILE = os.getenv("DR_CONFIG_FILE", "configs/pretrain_default.yaml")
-
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        yaml_file=YAML_FILE,
     )
 
     @classmethod
@@ -47,17 +44,18 @@ class Settings(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
+        yaml_file = os.getenv("DR_CONFIG_FILE", "configs/pretrain_default.yaml")
         return (
             init_settings,
             env_settings,
             dotenv_settings,
-            YamlConfigSettingsSource(settings_cls),
+            YamlConfigSettingsSource(settings_cls, yaml_file=yaml_file),
         )
 
     # ── paths ──────────────────────────────────────────────────────
     checkpoint_dir: Path = Path("checkpoints")
     log_dir: Path = Path("logs")
-    data_dir: Path | None = None
+    data_dir: Path = Path("../data")
 
     # ── architecture ───────────────────────────────────────────────
     patch_size: int = 16
@@ -93,6 +91,7 @@ class Settings(BaseSettings):
     lambda_s: float = 10.0
     ss_decay: bool = False
     save_every: int = 20
+    seed: int = -1
 
     # ── data ───────────────────────────────────────────────────────
     image_size: tuple[int, int] = (224, 224)

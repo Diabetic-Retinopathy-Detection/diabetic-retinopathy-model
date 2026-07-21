@@ -28,7 +28,7 @@ class TestPretrainIntegration:
         ds = TensorDataset(x1, x2, m1, m2)
         dl = DataLoader(ds, batch_size=4)
 
-        pretrain(model, dl, config)
+        pretrain(model, dl, config, device=torch.device("cpu"))
 
         assert (tmp_path / "ckpts" / config.model_name / "checkpoint.pt").exists()
         assert (tmp_path / "ckpts" / config.model_name / f"epoch_{config.max_epochs}_encoder.pt").exists()
@@ -51,7 +51,7 @@ class TestPretrainIntegration:
             torch.rand(B, 1, H, W),
         )
         dl = DataLoader(ds, batch_size=4)
-        pretrain(model, dl, config)
+        pretrain(model, dl, config, device=torch.device("cpu"))
 
     def test_resume_from_checkpoint(self, tmp_path: Path) -> None:
         config = _make_config(
@@ -69,7 +69,7 @@ class TestPretrainIntegration:
             torch.rand(B, 1, H, W),
         )
         dl = DataLoader(ds, batch_size=4)
-        pretrain(model, dl, config)
+        pretrain(model, dl, config, device=torch.device("cpu"))
 
         ckpt_path = tmp_path / "ckpts" / config.model_name / "checkpoint.pt"
         assert ckpt_path.exists()
@@ -81,4 +81,4 @@ class TestPretrainIntegration:
             log_dir=tmp_path / "logs2",
         )
         model2 = Pretrainer(config2)
-        pretrain(model2, dl, config2, resume_path=ckpt_path)
+        pretrain(model2, dl, config2, device=torch.device("cpu"), resume_path=ckpt_path)

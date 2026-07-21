@@ -63,6 +63,18 @@ Strip CLS token from features, reshape to `(B, C, H, W)`, pass through segmentor
 
 ## Pretraining Data
 
+Both repos share a data directory outside either repo:
+
+```
+DiabeticRetinopathy/
+├── data/                    # shared, gitignored
+│   ├── cropped/             # JPEG fundus crops
+│   ├── saliency/            # .npy saliency maps
+│   └── dataset.pkl          # portable index (relative paths)
+├── preprocess-retina-datasets/   # writes into data/
+└── diabetic-retinopathy-model/   # reads from data/
+```
+
 `PairDataset` loads image-saliency pairs from the pickle index produced by
 `preprocess-retina-datasets`. Paths in the pickle are stored **relative** to a common
 root directory, making the index portable across machines.
@@ -114,4 +126,50 @@ TensorBoard logging when a `SummaryWriter` is provided: contrastive loss, salien
 
 ## Training CLI
 
+### Running pretraining
+
+```bash
+uv run dr-train --phase pretrain --device mps --seed 42
+```
+
+Loads `Settings` from the YAML config (default: `configs/pretrain_default.yaml`), builds the `PretrainDataModule` + `Pretrainer`, and runs the contrastive-saliency loop. Key flags: `--device`, `--seed`, `--data-index-path`, `--config`, `--resume`.
+
+### Training reports
+
+Export TensorBoard scalars to a PDF report:
+
+```bash
+uv run dr-report --logdir logs/vit_p16_e768_d12_h12_c5/
+uv run dr-report --logdir logs/vit_p16_e768_d12_h12_c5/ --output report.pdf
+```
+
+Generates a multi-page PDF with loss curves (contrastive, saliency, total), learning rate schedule, momentum schedule, and a summary page with final/best metrics.
+
+::: dr_model.training.report
+
+### Pretraining loop
+
+`pretrain(model, train_dataloader, config, device=..., writer=..., resume_path=...)` runs the full MoCo v3 contrastive + saliency segmentation pretraining loop.
+
+- **LR schedule**: linear warmup for `warmup_epochs`, then cosine decay to zero.
+- **Momentum schedule**: cosine ramp from `momentum_base` to `momentum_max` (fractional progress `t ∈ [0, 1]`).
+- **Lambda_s schedule**: optional cosine decay of saliency loss weight (enabled via `ss_decay`).
+- **AMP**: enabled when `precision == "16-mixed"` and `device.type == "cuda"`.
+- **Checkpointing**: interval saves at `save_every` epochs + final epoch. Saves both full training state (`checkpoint.pt`) and encoder-only weights (`epoch_{N}_encoder.pt`).
+- **TensorBoard**: logs `loss/contrastive`, `loss/saliency`, `loss/total`, `lr`, `momentum_m` per epoch.
+
+The caller resolves the device and moves the model before calling `pretrain()`. This keeps device logic out of the loop and simplifies testing.
+
+::: dr_model.training.pretrain_loop
+
 ::: dr_model.training.cli
+
+## Utils
+
+Device resolution and determinism helpers for reproducible training.
+
+- `resolve_device(device_str)` — `"auto"` prefers CUDA, then MPS, then CPU. Other strings pass through.
+- `setup_determinism(seed)` — sets PyTorch/CUDA/cuDNN seeds and enables deterministic algorithms. Call before any CUDA work.
+- `setup_cublas_workspace()` — sets `CUBLAS_WORKSPACE_CONFIG` for deterministic cuBLAS. Called automatically by `setup_determinism`.
+
+::: dr_model.utils
