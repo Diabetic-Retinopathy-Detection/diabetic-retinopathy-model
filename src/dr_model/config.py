@@ -60,19 +60,24 @@ class Settings(BaseSettings):
     data_dir: Path | None = None
 
     # ── architecture ───────────────────────────────────────────────
-    # Standard ViT-B/16 configuration per Dosovitskiy et al. (2020).
     patch_size: int = 16
     embed_dim: int = 768
     depth: int = 12
     num_heads: int = 12
     mlp_ratio: float = 4.0
-    # Training-time only — inference uses model.eval() to disable these.
     drop_rate: float = 0.0
     attn_drop_rate: float = 0.0
 
     # ── model ──────────────────────────────────────────────────────
     pretrained_weights: str | None = None
     num_classes: int = 5
+
+    # ── pretraining ────────────────────────────────────────────────
+    dim: int = 256
+    mlp_dim: int = 4096
+    temperature: float = 1.0
+    saliency_threshold: float = 0.25
+    pool_mode: str = "max"
 
     # ── training ───────────────────────────────────────────────────
     batch_size: int = 32
