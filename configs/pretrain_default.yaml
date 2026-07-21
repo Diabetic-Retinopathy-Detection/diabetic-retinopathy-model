@@ -30,6 +30,13 @@ max_epochs: 100
 gradient_clip_val: 1.0
 accumulate_grad_batches: 1
 precision: 16-mixed
+warmup_epochs: 40
+momentum_base: 0.99
+momentum_max: 1.0
+lambda_c: 1.0
+lambda_s: 10.0
+ss_decay: false
+save_every: 20
 
 host: 0.0.0.0
 port: 8000
