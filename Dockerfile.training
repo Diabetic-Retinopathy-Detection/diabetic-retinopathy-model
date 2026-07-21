@@ -1,0 +1,46 @@
+# ─── Diabetic Retinopathy Model — Training Image ────────────────────
+#
+# GPU-capable training image for use on the HPC cluster (via Singularity)
+# and locally via Docker.
+#
+# Base: CUDA 12.2 matches cluster driver (535.288.01).
+# Python: 3.11 matches cluster environment.
+#
+# Usage:
+#   docker build -f Dockerfile.training -t dr-train:local .
+#   docker run --gpus all -v ./data:/app/data dr-train:local
+#
+# Singularity conversion (on cluster):
+#   singularity build dr-train.sif docker-daemon://dr-train:local
+#   singularity exec --nv dr-train.sif uv run dr-train --device cuda
+# ────────────────────────────────────────────────────────────────────
+
+FROM nvidia/cuda:12.2.2-cudnn8-devel-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# System deps — Python 3.11 for dependency compatibility
+RUN apt-get update && apt-get install -y \
+    python3.11 python3.11-venv python3.11-dev python3-pip git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Make python3.11 the default python3
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 \
+    && update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1
+
+# uv for dependency management
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+
+WORKDIR /app
+
+# Install dependencies first (layer caching)
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-install-project --python python3.11
+
+# Copy source and install project
+COPY . /app
+RUN uv sync --frozen --python python3.11
+
+EXPOSE 8000
+
+CMD ["uv", "run", "dr-train", "--device", "cuda"]

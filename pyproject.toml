@@ -20,15 +20,15 @@ classifiers = [
 # PyTorch: MPS is the dev target, CUDA is the cluster target.
 # Floor-only pin lets uv.lock handle exact resolution per platform.
 dependencies = [
-    "torch>=2.2.0",
-    "torchvision>=0.17.0",
+    "torch>=2.2.0,<2.3.0",
+    "torchvision>=0.17.0,<0.18.0",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.34.0",
     "pydantic>=2.0.0",
     "pydantic-settings>=2.0.0",
     "pyyaml>=6.0",
-    "pillow>=11.0.0",
-    "numpy>=1.26.0",
+    "pillow>=11.0.0,<12.0.0",
+    "numpy>=1.26.0,<2.0.0",
     "opencv-contrib-python-headless>=4.8.0",
     "tqdm>=4.66.0",
     "tensorboard>=2.21.0",

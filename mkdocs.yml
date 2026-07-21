@@ -11,6 +11,7 @@ nav:
   - Home: index.md
   - Configuration: configuration.md
   - Experiment Tracking: experiment-tracking.md
+  - HPC Deployment: hpc.md
   - Modules: modules.md
 plugins:
   - search
