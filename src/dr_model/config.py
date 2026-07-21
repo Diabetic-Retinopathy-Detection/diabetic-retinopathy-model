@@ -86,6 +86,13 @@ class Settings(BaseSettings):
     gradient_clip_val: float = 1.0
     accumulate_grad_batches: int = 1
     precision: str = "16-mixed"
+    warmup_epochs: int = 40
+    momentum_base: float = 0.99
+    momentum_max: float = 1.0
+    lambda_c: float = 1.0
+    lambda_s: float = 10.0
+    ss_decay: bool = False
+    save_every: int = 20
 
     # ── data ───────────────────────────────────────────────────────
     image_size: tuple[int, int] = (224, 224)
