@@ -165,3 +165,37 @@ class TestSystemMetadataTags:
 
         config = Settings()
         init_mlflow_run(config, experiment_name="test", run_name_prefix="test")
+
+
+class TestConfigArtifact:
+    """Full YAML config is logged as an MLflow artifact."""
+
+    def test_log_dict_called_with_config(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        logged: list[dict] = []
+
+        monkeypatch.setattr("mlflow.set_tracking_uri", lambda _: None)
+        monkeypatch.setattr("mlflow.set_experiment", lambda _: None)
+        monkeypatch.setattr("mlflow.start_run", lambda **_: None)
+        monkeypatch.setattr("mlflow.log_param", lambda k, v: None)
+        monkeypatch.setattr("mlflow.set_tag", lambda k, v: None)
+        monkeypatch.setattr("mlflow.active_run", lambda: None)
+        monkeypatch.setattr("mlflow.log_dict", lambda d, f: logged.append(d))
+
+        import torch
+
+        config = Settings(mlflow=True, tensorboard=False)
+        from dr_model.training.cli import _run_pretrain
+
+        monkeypatch.setattr("dr_model.training.cli.Settings", lambda: config)
+        data_mock = MagicMock(setup=MagicMock(), train_dataloader=lambda: MagicMock())
+        monkeypatch.setattr("dr_model.training.cli.PretrainDataModule", lambda _: data_mock)
+        model_mock = MagicMock(to=lambda _: MagicMock())
+        monkeypatch.setattr("dr_model.training.cli.Pretrainer", lambda _: model_mock)
+        monkeypatch.setattr("dr_model.training.cli.pretrain", lambda *a, **kw: None)
+
+        _run_pretrain(config, device=torch.device("cpu"), resume=None)
+
+        assert len(logged) == 1
+        dumped = logged[0]
+        assert isinstance(dumped, dict)
+        assert dumped.get("batch_size") == 32
