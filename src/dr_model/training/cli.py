@@ -5,6 +5,7 @@ import os
 import sys
 from pathlib import Path
 
+import mlflow
 import torch
 
 os.environ.setdefault("DR_CONFIG_FILE", "configs/pretrain_default.yaml")
@@ -105,6 +106,7 @@ def _run_pretrain(config: Settings, device: torch.device, resume: str | None) ->
             run_name_prefix="pretrain",
             device=device,
         )
+        mlflow.log_dict(config.model_dump(), "config.yaml")
 
     writer = None
     if config.tensorboard:
