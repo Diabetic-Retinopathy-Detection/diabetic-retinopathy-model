@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 import os
+import random
 
+import numpy as np
 import torch
 
-from dr_model.utils.determinism import setup_cublas_workspace, setup_determinism
+from dr_model.utils.determinism import (
+    setup_cublas_workspace,
+    setup_determinism,
+    worker_init_fn,
+)
 from dr_model.utils.device import resolve_device
 
 
@@ -23,15 +29,52 @@ class TestResolveDevice:
 
 
 class TestSetupDeterminism:
-    def test_sets_cublas_workspace(self) -> None:
-        os.environ.pop("CUBLAS_WORKSPACE_CONFIG", None)
-        setup_determinism(seed=123)
-        assert os.environ.get("CUBLAS_WORKSPACE_CONFIG") == ":4096:8"
-
-    def test_seed_is_set(self) -> None:
+    def test_torch_seed_is_set(self) -> None:
         setup_determinism(seed=99)
-        # torch.manual_seed was called — just verify no error
         assert torch.initial_seed() == 99
+
+    def test_random_seed_is_set(self) -> None:
+        setup_determinism(seed=42)
+        a = random.randint(0, 2**31)  # noqa: S311
+        random.seed(42)
+        b = random.randint(0, 2**31)  # noqa: S311
+        assert a == b
+
+    def test_numpy_seed_is_set(self) -> None:
+        setup_determinism(seed=7)
+        a = np.random.randint(0, 2**31)
+        np.random.seed(7)
+        b = np.random.randint(0, 2**31)
+        assert a == b
+
+    def test_deterministic_algorithms_off_by_default(self) -> None:
+        # Default call should NOT enable deterministic algorithms
+        setup_determinism(seed=1)
+        assert not torch.are_deterministic_algorithms_enabled()
+
+    def test_deterministic_algorithms_optional(self) -> None:
+        setup_determinism(seed=1, deterministic_algorithms=True)
+        assert torch.are_deterministic_algorithms_enabled()
+        # Reset so it doesn't affect other tests
+        torch.use_deterministic_algorithms(False)
+
+    def test_returns_seed(self) -> None:
+        result = setup_determinism(seed=42)
+        assert result == 42
+
+
+class TestWorkerInitFn:
+    def test_reseeds_with_seed_plus_id(self) -> None:
+        setup_determinism(seed=100)
+        worker_init_fn(worker_id=5)
+        seed_state = random.getstate()
+        random.seed(105)
+        assert random.getstate() == seed_state
+
+    def test_noop_when_not_called(self) -> None:
+        """worker_init_fn without prior setup_determinism should not crash."""
+        # _SEED is None from import
+        worker_init_fn(worker_id=0)
 
 
 class TestSetupCublasWorkspace:
