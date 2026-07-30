@@ -141,6 +141,30 @@ uv run dr-report --logdir logs/vit_p16_e768_d12_h12_c5/
 uv run dr-report --logdir logs/vit_p16_e768_d12_h12_c5/ --output my_report.pdf
 ```
 
+## Training
+
+### Smoke test
+
+Quick local validation with a tiny model and a handful of images:
+
+```bash
+# 1. Create a small pickle index (first 80 images with matching saliency maps)
+uv run python scripts/create_smoke_dataset.py
+
+# 2. Run one pretraining epoch on CPU
+uv run dr-train --phase pretrain --device cpu --config configs/pretrain_smoke.yaml
+```
+
+This logs to MLflow (`mlflow` experiment `dr-pretrain-smoke`) and TensorBoard (`logs/`).
+
+### Full pretraining
+
+```bash
+uv run dr-train --phase pretrain
+```
+
+Uses `configs/pretrain_default.yaml` by default. Override with `--config` or `DR_CONFIG_FILE`.
+
 ## Testing
 
 ```bash
