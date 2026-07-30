@@ -9,7 +9,6 @@ reimplementing distributed training (single-process for now).
 from __future__ import annotations
 
 import math
-import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -20,6 +19,7 @@ from torch.utils.data import DataLoader
 
 from dr_model.config import Settings
 from dr_model.model.pretrain import Pretrainer
+from dr_model.utils.timer import Timer
 
 if TYPE_CHECKING:
     from torch.utils.tensorboard import SummaryWriter
@@ -124,7 +124,24 @@ def _save_encoder(path: Path, model: Pretrainer) -> None:
     torch.save(model.base_encoder.state_dict(), path)
 
 
-def pretrain(  # noqa: C901
+def _finalize_training(
+    timer: Timer,
+    writer: SummaryWriter | None,
+    config: Settings,
+) -> None:
+    """Log total wall time and close the writer."""
+    t_total = timer.total()
+    if writer is not None:
+        writer.add_scalar("time/total", t_total)
+    if config.mlflow:
+        import mlflow
+
+        mlflow.log_metric("time/total", t_total)
+    if writer is not None:
+        writer.close()
+
+
+def pretrain(
     model: Pretrainer,
     train_dataloader: DataLoader,
     config: Settings,
@@ -174,9 +191,8 @@ def pretrain(  # noqa: C901
     save_dir.mkdir(parents=True, exist_ok=True)
 
     model.train()
-    t_train_start = time.perf_counter()
+    timer = Timer()
     for epoch in range(start_epoch, config.max_epochs):
-        t_epoch_start = time.perf_counter()
         epoch_cl_loss = 0.0
         epoch_ss_loss = 0.0
         for step, (x1, x2, m1, m2) in enumerate(train_dataloader):
@@ -213,9 +229,8 @@ def pretrain(  # noqa: C901
         steps = len(train_dataloader)
         avg_cl = epoch_cl_loss / steps
         avg_ss = epoch_ss_loss / steps
-        t_epoch = time.perf_counter() - t_epoch_start
 
-        _log_epoch(epoch, config, avg_cl, avg_ss, lr, moco_m, t_epoch, writer)
+        _log_epoch(epoch, config, avg_cl, avg_ss, lr, moco_m, timer.lap(), writer)
 
         if (epoch + 1) % config.save_every == 0 and (epoch + 1) < config.max_epochs:
             _save_checkpoint(save_dir / "checkpoint.pt", epoch, model, optimizer, scaler)
@@ -224,13 +239,4 @@ def pretrain(  # noqa: C901
     _save_checkpoint(save_dir / "checkpoint.pt", config.max_epochs - 1, model, optimizer, scaler)
     _save_encoder(save_dir / f"epoch_{config.max_epochs}_encoder.pt", model)
 
-    t_total = time.perf_counter() - t_train_start
-    if writer is not None:
-        writer.add_scalar("time/total", t_total)
-    if config.mlflow:
-        import mlflow
-
-        mlflow.log_metric("time/total", t_total)
-
-    if writer is not None:
-        writer.close()
+    _finalize_training(timer, writer, config)
