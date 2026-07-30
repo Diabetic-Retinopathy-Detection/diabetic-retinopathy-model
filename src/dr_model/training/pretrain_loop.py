@@ -9,6 +9,7 @@ reimplementing distributed training (single-process for now).
 from __future__ import annotations
 
 import math
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -66,6 +67,7 @@ def _log_epoch(
     avg_ss: float,
     lr: float,
     moco_m: float,
+    t_epoch: float,
     writer: SummaryWriter | None,
 ) -> None:
     """Print and log epoch metrics to TensorBoard and MLflow."""
@@ -81,6 +83,7 @@ def _log_epoch(
         writer.add_scalar("loss/total", avg_cl + avg_ss, epoch)
         writer.add_scalar("lr", lr, epoch)
         writer.add_scalar("momentum_m", moco_m, epoch)
+        writer.add_scalar("time/epoch", t_epoch, epoch)
 
     if config.mlflow:
         import mlflow
@@ -92,6 +95,7 @@ def _log_epoch(
                 "loss/total": avg_cl + avg_ss,
                 "lr": lr,
                 "momentum_m": moco_m,
+                "time/epoch": t_epoch,
             },
             step=epoch,
         )
@@ -120,7 +124,7 @@ def _save_encoder(path: Path, model: Pretrainer) -> None:
     torch.save(model.base_encoder.state_dict(), path)
 
 
-def pretrain(
+def pretrain(  # noqa: C901
     model: Pretrainer,
     train_dataloader: DataLoader,
     config: Settings,
@@ -170,7 +174,9 @@ def pretrain(
     save_dir.mkdir(parents=True, exist_ok=True)
 
     model.train()
+    t_train_start = time.perf_counter()
     for epoch in range(start_epoch, config.max_epochs):
+        t_epoch_start = time.perf_counter()
         epoch_cl_loss = 0.0
         epoch_ss_loss = 0.0
         for step, (x1, x2, m1, m2) in enumerate(train_dataloader):
@@ -207,8 +213,9 @@ def pretrain(
         steps = len(train_dataloader)
         avg_cl = epoch_cl_loss / steps
         avg_ss = epoch_ss_loss / steps
+        t_epoch = time.perf_counter() - t_epoch_start
 
-        _log_epoch(epoch, config, avg_cl, avg_ss, lr, moco_m, writer)
+        _log_epoch(epoch, config, avg_cl, avg_ss, lr, moco_m, t_epoch, writer)
 
         if (epoch + 1) % config.save_every == 0 and (epoch + 1) < config.max_epochs:
             _save_checkpoint(save_dir / "checkpoint.pt", epoch, model, optimizer, scaler)
@@ -216,6 +223,14 @@ def pretrain(
 
     _save_checkpoint(save_dir / "checkpoint.pt", config.max_epochs - 1, model, optimizer, scaler)
     _save_encoder(save_dir / f"epoch_{config.max_epochs}_encoder.pt", model)
+
+    t_total = time.perf_counter() - t_train_start
+    if writer is not None:
+        writer.add_scalar("time/total", t_total)
+    if config.mlflow:
+        import mlflow
+
+        mlflow.log_metric("time/total", t_total)
 
     if writer is not None:
         writer.close()
