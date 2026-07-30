@@ -16,6 +16,7 @@ from torch.utils.data import DataLoader
 from dr_model.config import Settings
 from dr_model.data.constants import EYEPACS_MEAN, EYEPACS_STD
 from dr_model.data.pair_dataset import DATA_AUG, PairDataset, TransformWithMask
+from dr_model.utils.determinism import worker_init_fn
 
 
 class PretrainDataModule:
@@ -74,4 +75,5 @@ class PretrainDataModule:
             pin_memory=True,
             shuffle=True,
             drop_last=True,
+            worker_init_fn=worker_init_fn if self.config.seed >= 0 else None,
         )
