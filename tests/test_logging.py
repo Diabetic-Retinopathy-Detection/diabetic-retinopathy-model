@@ -122,7 +122,7 @@ class TestSystemMetadataTags:
         monkeypatch.setattr("mlflow.set_tracking_uri", lambda _: None)
         monkeypatch.setattr("mlflow.set_experiment", lambda _: None)
         monkeypatch.setattr("mlflow.start_run", lambda **_: None)
-        monkeypatch.setattr("mlflow.log_param", lambda k, v: params.update({k: str(v)}))  # type: ignore[arg-type]
+        monkeypatch.setattr("mlflow.log_param", lambda k, v: params.update({k: str(v)}))
         monkeypatch.setattr("mlflow.set_tag", lambda k, v: tags.update({k: str(v)}))
         monkeypatch.setattr("mlflow.active_run", lambda: None)
 
