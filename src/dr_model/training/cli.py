@@ -5,6 +5,9 @@ import os
 import sys
 from pathlib import Path
 
+# Must be set before importing torch (CuBLAS reads it at init).
+os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+
 import mlflow
 import torch
 
@@ -49,6 +52,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Random seed (overrides config). Set to -1 to disable.",
     )
     parser.add_argument(
+        "--deterministic",
+        action="store_true",
+        default=None,
+        help="Enable full GPU determinism (slower, bitwise reproducible). Overrides config.deterministic_algorithms.",
+    )
+    parser.add_argument(
         "--device",
         type=str,
         default="auto",
@@ -75,6 +84,8 @@ def main(argv: list[str] | None = None) -> int:
     updates: dict[str, object] = {}
     if args.seed is not None:
         updates["seed"] = args.seed
+    if args.deterministic is not None:
+        updates["deterministic_algorithms"] = args.deterministic
     if args.data_index_path is not None:
         updates["data_index_path"] = Path(args.data_index_path)
     if args.data_dir is not None:
@@ -83,7 +94,7 @@ def main(argv: list[str] | None = None) -> int:
         config = config.model_copy(update=updates)
     device = resolve_device(args.device)
     if config.seed >= 0:
-        setup_determinism(config.seed)
+        setup_determinism(config.seed, deterministic_algorithms=config.deterministic_algorithms)
     print(f"Using device: {device}")
 
     if args.phase == "pretrain":

@@ -92,6 +92,7 @@ class Settings(BaseSettings):
     ss_decay: bool = False
     save_every: int = 20
     seed: int = -1
+    deterministic_algorithms: bool = False
 
     # ── data ───────────────────────────────────────────────────────
     image_size: tuple[int, int] = (224, 224)
