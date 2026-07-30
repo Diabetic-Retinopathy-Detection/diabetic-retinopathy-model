@@ -95,6 +95,7 @@ def _run_pretrain(config: Settings, device: torch.device, resume: str | None) ->
             config,
             experiment_name=config.mlflow_experiment_name,
             run_name_prefix="pretrain",
+            device=device,
         )
 
     writer = None

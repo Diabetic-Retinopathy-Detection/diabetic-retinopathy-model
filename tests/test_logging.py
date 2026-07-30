@@ -108,3 +108,60 @@ class TestEpochTimeIntegration:
             for args in [call_args[0]]
         )
         assert found
+
+
+class TestSystemMetadataTags:
+    """Environment metadata is logged as MLflow tags on run start."""
+
+    def test_basic_tags_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from dr_model.logging.mlflow_utils import init_mlflow_run
+
+        tags: dict[str, str] = {}
+        params: dict[str, str] = {}
+
+        monkeypatch.setattr("mlflow.set_tracking_uri", lambda _: None)
+        monkeypatch.setattr("mlflow.set_experiment", lambda _: None)
+        monkeypatch.setattr("mlflow.start_run", lambda **_: None)
+        monkeypatch.setattr("mlflow.log_param", lambda k, v: params.update({k: str(v)}))  # type: ignore[arg-type]
+        monkeypatch.setattr("mlflow.set_tag", lambda k, v: tags.update({k: str(v)}))
+        monkeypatch.setattr("mlflow.active_run", lambda: None)
+
+        config = Settings()
+        init_mlflow_run(config, experiment_name="test", run_name_prefix="test")
+
+        assert tags.get("torch_version", "").startswith(("2.",))
+        assert "platform" in tags
+        assert "python_version" in tags
+        assert "cuda_version" in tags
+
+    def test_gpu_tag_skipped_on_cpu(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from dr_model.logging.mlflow_utils import init_mlflow_run
+
+        tags: dict[str, str] = {}
+
+        monkeypatch.setattr("mlflow.set_tracking_uri", lambda _: None)
+        monkeypatch.setattr("mlflow.set_experiment", lambda _: None)
+        monkeypatch.setattr("mlflow.start_run", lambda **_: None)
+        monkeypatch.setattr("mlflow.log_param", lambda k, v: None)
+        monkeypatch.setattr("mlflow.set_tag", lambda k, v: tags.update({k: str(v)}))
+        monkeypatch.setattr("mlflow.active_run", lambda: None)
+
+        import torch
+
+        config = Settings()
+        init_mlflow_run(config, experiment_name="test", run_name_prefix="test", device=torch.device("cpu"))
+
+        assert "gpu_name" not in tags
+
+    def test_no_crash_when_device_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from dr_model.logging.mlflow_utils import init_mlflow_run
+
+        monkeypatch.setattr("mlflow.set_tracking_uri", lambda _: None)
+        monkeypatch.setattr("mlflow.set_experiment", lambda _: None)
+        monkeypatch.setattr("mlflow.start_run", lambda **_: None)
+        monkeypatch.setattr("mlflow.log_param", lambda k, v: None)
+        monkeypatch.setattr("mlflow.set_tag", lambda k, v: None)
+        monkeypatch.setattr("mlflow.active_run", lambda: None)
+
+        config = Settings()
+        init_mlflow_run(config, experiment_name="test", run_name_prefix="test")
