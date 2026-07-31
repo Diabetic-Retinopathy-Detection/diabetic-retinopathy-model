@@ -6,13 +6,22 @@
 # Base: CUDA 12.2 matches cluster driver (535.288.01).
 # Python: 3.11 matches cluster environment.
 #
-# Usage:
+# Usage (single GPU):
 #   docker build -f Dockerfile.training -t dr-train:local .
 #   docker run --gpus all -v ./data:/app/data dr-train:local
 #
+# Multi-GPU (DDP) — torchrun spawns one process per visible GPU; the CLI
+# detects the torchrun environment and pins each rank to cuda:{local_rank}:
+#   docker run --gpus all dr-train:local \
+#       uv run torchrun --nnodes=1 --nproc-per-node=4 -m dr_model.training.cli \
+#           --phase pretrain --device cuda --config configs/pretrain_default.yaml
+#
 # Singularity conversion (on cluster):
 #   singularity build dr-train.sif docker-daemon://dr-train:local
-#   singularity exec --nv dr-train.sif uv run dr-train --device cuda
+#   singularity exec --nv dr-train.sif \
+#       uv run torchrun --nnodes=1 --nproc-per-node=4 -m dr_model.training.cli \
+#           --phase pretrain --device cuda --config configs/pretrain_default.yaml
+#   (or submit scripts/pretrain_hpc.sh via scripts/submit_train.sh)
 # ────────────────────────────────────────────────────────────────────
 
 FROM nvidia/cuda:12.2.2-cudnn8-devel-ubuntu22.04
