@@ -42,6 +42,7 @@ singularity exec --nv --writable-tmpfs \
     --bind "${SCRATCH}/tb-logs:/app/logs" \
     --bind "${SCRATCH}/mlflow:/scratch/mlflow" \
     --env MLFLOW_TRACKING_URI="sqlite:////scratch/mlflow/mlflow.db" \
+    --env PYTHONDONTWRITEBYTECODE=1 \
     "${SIF}" \
     uv run torchrun --nnodes=1 --nproc-per-node="${N_GPUS}" -m dr_model.training.cli \
         --phase pretrain --device cuda \
