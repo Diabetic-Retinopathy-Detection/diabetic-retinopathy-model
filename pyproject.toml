@@ -5,7 +5,7 @@ description = "ViT-based model for diabetic retinopathy classification — train
 authors = [{ name = "Stefan Meier", email = "42180739+Meier-Stefan@users.noreply.github.com (open issues to contact me)" }]
 readme = "README.md"
 keywords = ["retina", "fundus", "diabetic-retinopathy", "deep-learning", "vit", "ssit"]
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.13"
 classifiers = [
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",

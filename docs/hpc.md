@@ -80,13 +80,40 @@ singularity exec --nv --writable-tmpfs \
         --seed 42
 ```
 
-### SLURM batch job
+### SLURM batch job (single or multi-GPU)
 
-A ready-to-use SLURM script is included at `scripts/pretrain_hpc.sh`. Submit with:
+A ready-to-use SLURM script is included at `scripts/pretrain_hpc.sh`, with a
+smoke variant at `scripts/pretrain_hpc_smoke.sh`. The recommended entry point
+is `scripts/submit_train.sh`, which overrides the GPU count:
 
 ```bash
-sbatch scripts/pretrain_hpc.sh
+# 1x GPU (single-process, no DDP)
+./scripts/submit_train.sh full 1
+
+# 4x GPU — single-node DDP, one torchrun process per GPU
+./scripts/submit_train.sh full 4
+
+# 2x GPU smoke test — proves gradient sync before a long run
+./scripts/submit_train.sh smoke 2
 ```
+
+The command-line `--gres=gpu:N` overrides the `#SBATCH --gres=gpu:1` default in
+the script, and `N_GPUS` is exported into the job. Inside the job, Slurm sets
+`CUDA_VISIBLE_DEVICES` to the allocated GPUs and the script launches:
+
+```bash
+uv run torchrun --nnodes=1 --nproc-per-node="${N_GPUS}" -m dr_model.training.cli \
+    --phase pretrain --device cuda \
+    --config configs/pretrain_default.yaml \
+    --data-index-path /app/data/dataset.pkl \
+    --data-dir /app/data \
+    --seed 42
+```
+
+**Note the `-m` form**: `torchrun ... -m dr_model.training.cli` — torchrun takes
+the module via its own `-m` flag (do **not** write `torchrun ... python -m ...`).
+Each rank detects the torchrun environment and pins itself to `cuda:{local_rank}`;
+the `--device cuda` argument is ignored in favour of the per-rank device.
 
 Monitor with:
 
@@ -109,8 +136,11 @@ tail -f /scratch/users/$USER/tb-logs/<jobid>.out
 #SBATCH --output=/scratch/users/%u/tb-logs/%j.out
 #SBATCH --error=/scratch/users/%u/tb-logs/%j.err
 
+set -euo pipefail
+
 SCRATCH="/scratch/users/${USER}"
 SIF="${SCRATCH}/dr-train.sif"
+N_GPUS="${N_GPUS:-${SLURM_GPUS_ON_NODE:-1}}"
 
 mkdir -p "${SCRATCH}/checkpoints" "${SCRATCH}/tb-logs" "${SCRATCH}/mlflow"
 
@@ -123,7 +153,7 @@ singularity exec --nv --writable-tmpfs \
     --bind "${SCRATCH}/mlflow:/scratch/mlflow" \
     --env MLFLOW_TRACKING_URI="sqlite:////scratch/mlflow/mlflow.db" \
     "${SIF}" \
-    uv run python -m dr_model.training.cli \
+    uv run torchrun --nnodes=1 --nproc-per-node="${N_GPUS}" -m dr_model.training.cli \
         --phase pretrain --device cuda \
         --config configs/pretrain_default.yaml \
         --data-index-path /app/data/dataset.pkl \
@@ -131,7 +161,37 @@ singularity exec --nv --writable-tmpfs \
         --seed 42
 ```
 
-Submit with: `sbatch pretrain.sh`
+Submit with: `./scripts/submit_train.sh full 4`
+
+## Single-GPU Linux machine (local development)
+
+A Linux box with one GPU (no Slurm) is ideal for testing CUDA-only paths —
+AMP, real GPU memory behaviour, and the Linux/amd64 Docker build that
+Singularity requires. Clone the repo and run directly:
+
+```bash
+git clone https://github.com/Diabetic-Retinopathy-Detection/diabetic-retinopathy-model.git
+cd diabetic-retinopathy-model
+uv sync          # installs deps + project into .venv
+
+# Smoke test on the GPU (validates CUDA, AMP off, determinism off)
+uv run python -m dr_model.training.cli \
+    --phase pretrain --device cuda \
+    --config configs/pretrain_smoke.yaml
+
+# Multi-GPU check on a 1-GPU box: run the DDP launcher with 1 process —
+# exercises the torchrun path (rank 0) that the cluster will use with N GPUs
+uv run torchrun --nnodes=1 --nproc-per-node=1 -m dr_model.training.cli \
+    --phase pretrain --device cuda \
+    --config configs/pretrain_smoke.yaml
+```
+
+`--device cuda` falls back to `cuda:0`; with `--device auto` the first visible
+GPU is used. For real data, add `--config configs/pretrain_default.yaml
+--data-index-path <path>/dataset.pkl --data-dir <root>`.
+
+This is also the right machine to build the amd64 image for the cluster:
+`make docker-build-train` (see [Section 1](#1-build-the-docker-image)).
 
 ## Singularity flags explained
 
@@ -185,6 +245,9 @@ Or log to a remote MLflow server instead:
 | `Failed to initialize cache at .cache/uv` | Home directory is read-only | Use `--writable-tmpfs` and `--home /tmp` |
 | `CUDA out of memory` | Batch too large for GPU VRAM | Reduce `batch_size` in config |
 | `NVIDIA driver not detected` | Missing `--nv` flag | Add `--nv` to `singularity exec` |
+| `can't open file '.../python'` | `torchrun ... python -m ...` | Use torchrun's own `-m`: `torchrun ... -m dr_model.training.cli` |
+| `Unable to resolve hostname` / NCCL timeout on multi-GPU | Wrong network interface chosen | Set `NCCL_SOCKET_IFNAME` (e.g. `ib0` or `eth0`) in the Slurm script or `--env` |
+| Only rank 0 logs metrics | Rank gating is intentional | Checkpoints, TensorBoard, and MLflow are written by rank 0 only |
 
 ## GPU partitions
 
