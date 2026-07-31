@@ -12,6 +12,7 @@ nav:
   - Configuration: configuration.md
   - Experiment Tracking: experiment-tracking.md
   - HPC Deployment: hpc.md
+  - Distributed Training: distributed-training.md
   - Modules: modules.md
 plugins:
   - search

@@ -10,6 +10,7 @@ os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 
 import mlflow
 import torch
+import torch.nn as nn
 
 os.environ.setdefault("DR_CONFIG_FILE", "configs/pretrain_default.yaml")
 
@@ -17,6 +18,14 @@ from dr_model.config import Settings
 from dr_model.data.pretrain_datamodule import PretrainDataModule
 from dr_model.logging import end_mlflow_run, init_mlflow_run, init_tensorboard_logger
 from dr_model.model.pretrain import Pretrainer
+from dr_model.training.distributed import (
+    DistributedContext,
+    cleanup_distributed,
+    detect_distributed_context,
+    init_distributed,
+    is_rank_zero,
+    wrap_model,
+)
 from dr_model.training.pretrain_loop import pretrain
 from dr_model.utils import resolve_device, setup_determinism
 
@@ -92,36 +101,52 @@ def main(argv: list[str] | None = None) -> int:
         updates["data_dir"] = Path(args.data_dir)
     if updates:
         config = config.model_copy(update=updates)
-    device = resolve_device(args.device)
+
+    ctx = detect_distributed_context(args.device)
+    device = ctx.device if ctx.enabled else resolve_device(args.device)
     if config.seed >= 0:
         setup_determinism(config.seed, deterministic_algorithms=config.deterministic_algorithms)
-    print(f"Using device: {device}")
+    if is_rank_zero(ctx):
+        print(f"Using device: {device}")
 
     if args.phase == "pretrain":
-        return _run_pretrain(config, device, args.resume)
+        return _run_pretrain(config, device, args.resume, ctx)
     print(f"Phase '{args.phase}' not implemented yet.")
     return 1
 
 
-def _run_pretrain(config: Settings, device: torch.device, resume: str | None) -> int:
+def _run_pretrain(
+    config: Settings,
+    device: torch.device,
+    resume: str | None,
+    ctx: DistributedContext | None = None,
+) -> int:
+    if ctx is None:
+        ctx = detect_distributed_context(str(device))
+    if ctx.enabled:
+        device = ctx.device
+    init_distributed(ctx)
+
     dm = PretrainDataModule(config)
     dm.setup()
     dl = dm.train_dataloader()
 
-    model = Pretrainer(config).to(device)
-
-    if config.mlflow:
-        init_mlflow_run(
-            config,
-            experiment_name=config.mlflow_experiment_name,
-            run_name_prefix="pretrain",
-            device=device,
-        )
-        mlflow.log_dict(config.model_dump(), "config.yaml")
+    model: nn.Module = Pretrainer(config).to(device)
+    model = wrap_model(model, ctx)
 
     writer = None
-    if config.tensorboard:
-        writer = init_tensorboard_logger(config, run_name=f"pretrain_{config.model_name}")
+    if is_rank_zero(ctx):
+        if config.mlflow:
+            init_mlflow_run(
+                config,
+                experiment_name=config.mlflow_experiment_name,
+                run_name_prefix="pretrain",
+                device=device,
+            )
+            mlflow.log_dict(config.model_dump(), "config.yaml")
+
+        if config.tensorboard:
+            writer = init_tensorboard_logger(config, run_name=f"pretrain_{config.model_name}")
 
     resume_path = Path(resume) if resume else None
 
@@ -133,14 +158,19 @@ def _run_pretrain(config: Settings, device: torch.device, resume: str | None) ->
             device=device,
             writer=writer,
             resume_path=resume_path,
+            rank=ctx.rank,
+            world_size=ctx.world_size,
+            sampler=dm.sampler,
         )
     finally:
         if writer is not None:
             writer.close()
-        if config.mlflow:
+        if is_rank_zero(ctx) and config.mlflow:
             end_mlflow_run()
+        cleanup_distributed()
 
-    print("Pretraining complete.")
+    if is_rank_zero(ctx):
+        print("Pretraining complete.")
     return 0
 
 

@@ -43,6 +43,11 @@ docker-build: ## Build the CPU serving Docker image
 	@echo "Building serving Docker image"
 	@docker build -t dr-model-serving:latest .
 
+.PHONY: docker-build-train
+docker-build-train: ## Build the GPU training Docker image
+	@echo "Building GPU training Docker image"
+	@docker build -f Dockerfile.training -t dr-train:latest .
+
 .PHONY: docker-run
 docker-run: ## Run the CPU serving container
 	@echo "Starting serving container on port 8000"
