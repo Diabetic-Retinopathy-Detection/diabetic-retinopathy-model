@@ -107,7 +107,7 @@ def _log_epoch(
 def _save_checkpoint(
     path: Path,
     epoch: int,
-    model: Pretrainer,
+    model: nn.Module,
     optimizer: AdamW,
     scaler: torch.cuda.amp.GradScaler | None,
 ) -> None:
@@ -126,9 +126,9 @@ def _save_checkpoint(
     torch.save(state, path)
 
 
-def _save_encoder(path: Path, model: Pretrainer) -> None:
+def _save_encoder(path: Path, model: nn.Module) -> None:
     """Persist only the base encoder weights for downstream fine-tuning."""
-    torch.save(unwrap_model(model).base_encoder.state_dict(), path)
+    torch.save(cast(Pretrainer, unwrap_model(model)).base_encoder.state_dict(), path)
 
 
 @rank_zero_only

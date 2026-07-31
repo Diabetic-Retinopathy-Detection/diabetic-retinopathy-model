@@ -274,7 +274,7 @@ def _ddp_worker(rank: int, world_size: int, config_dict: dict[str, object], port
             torch.rand(32, 1, 16, 16),
             torch.rand(32, 1, 16, 16),
         )
-        sampler = DistributedSampler(ds, shuffle=True, drop_last=True)
+        sampler: DistributedSampler = DistributedSampler(ds, shuffle=True, drop_last=True)
         dl = DataLoader(ds, batch_size=config.batch_size, sampler=sampler, drop_last=True)
 
         pretrain(
