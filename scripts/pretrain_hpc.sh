@@ -3,7 +3,7 @@
 #SBATCH --partition=gpu
 #SBATCH --qos=public_gpu
 #SBATCH --gres=gpu:1
-#SBATCH --time=24:00:00
+#SBATCH --time=47:00:00
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=16
 #SBATCH --output=/scratch/users/%u/tb-logs/%j.out
