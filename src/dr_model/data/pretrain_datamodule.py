@@ -11,7 +11,8 @@ import pickle
 import random
 from pathlib import Path
 
-from torch.utils.data import DataLoader
+import torch
+from torch.utils.data import DataLoader, DistributedSampler
 
 from dr_model.config import Settings
 from dr_model.data.constants import EYEPACS_MEAN, EYEPACS_STD
@@ -31,6 +32,7 @@ class PretrainDataModule:
     def __init__(self, config: Settings) -> None:
         self.config = config
         self.dataset: PairDataset | None = None
+        self.sampler: DistributedSampler | None = None
 
     def setup(self) -> None:
         """Load the pickle index and build the dataset."""
@@ -51,7 +53,9 @@ class PretrainDataModule:
         pairs = [(data_dir / img, data_dir / sal) for img, sal in raw_pairs]
 
         if self.config.dataset_ratio < 1.0:
-            random.shuffle(pairs)
+            rng = random.Random(self.config.seed)  # noqa: S311
+            pairs = list(pairs)
+            rng.shuffle(pairs)
             pairs = pairs[: int(len(pairs) * self.config.dataset_ratio)]
 
         transform = TransformWithMask(
@@ -63,17 +67,31 @@ class PretrainDataModule:
         self.dataset = PairDataset(pairs, transform=transform)
 
     def train_dataloader(self) -> DataLoader:
-        """Return the pretraining train dataloader."""
+        """Return the pretraining train dataloader.
+
+        When ``torch.distributed`` is initialised, the dataset is sharded
+        with a :class:`DistributedSampler` (stored as ``self.sampler``) so
+        each rank trains on a disjoint slice.  The training loop must call
+        ``sampler.set_epoch(epoch)`` each epoch to reshuffle.
+        """
         if self.dataset is None:
             msg = "Call setup() before train_dataloader()"
             raise RuntimeError(msg)
+
+        sampler: DistributedSampler | None = None
+        shuffle = True
+        if torch.distributed.is_initialized():
+            sampler = DistributedSampler(self.dataset, shuffle=True, drop_last=True)
+            self.sampler = sampler
+            shuffle = False
 
         return DataLoader(
             self.dataset,
             batch_size=self.config.batch_size,
             num_workers=self.config.num_workers,
             pin_memory=True,
-            shuffle=True,
+            shuffle=shuffle,
             drop_last=True,
+            sampler=sampler,
             worker_init_fn=worker_init_fn if self.config.seed >= 0 else None,
         )
