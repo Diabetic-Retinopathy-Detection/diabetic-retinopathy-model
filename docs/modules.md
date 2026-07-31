@@ -81,7 +81,11 @@ root directory, making the index portable across machines.
 
 `TransformWithMask` applies asymmetric student/teacher augmentation with paired spatial transforms. Every spatial transform (crop, rotation, flip) is applied to the image and mask with the same sampled parameters. Colour-only transforms are applied to the image only.
 
-`PretrainDataModule` loads the pickle, resolves relative paths, optionally subsamples via shuffle-then-truncate, and exposes a single `train_dataloader()`.
+`PretrainDataModule` loads the pickle, resolves relative paths, subsamples
+deterministically (seeded local RNG, so every rank selects the same subset),
+and exposes a single `train_dataloader()`. When `torch.distributed` is
+initialised, the dataset is sharded with a `DistributedSampler` (exposed as
+`self.sampler` for `set_epoch`).
 
 ::: dr_model.data
 
@@ -129,96 +133,56 @@ TensorBoard logging when a `SummaryWriter` is provided: contrastive loss, salien
 ### Running pretraining
 
 ```bash
-uv run dr-train --phase pretrain --device mps --seed 42
+uv run dr-train --phase pretrain --device cuda --seed 42
 ```
 
 Loads `Settings` from the YAML config (default: `configs/pretrain_default.yaml`), builds the `PretrainDataModule` + `Pretrainer`, and runs the contrastive-saliency loop. Key flags: `--device`, `--seed`, `--data-index-path`, `--config`, `--resume`.
 
-### Training reports
+### Distributed training
 
-Export TensorBoard scalars to a PDF report:
-
-```bash
-uv run dr-report --logdir logs/vit_p16_e768_d12_h12_c5/
-uv run dr-report --logdir logs/vit_p16_e768_d12_h12_c5/ --output report.pdf
-```
-
-Generates a multi-page PDF with loss curves (contrastive, saliency, total), learning rate schedule, momentum schedule, and a summary page with final/best metrics.
-
-::: dr_model.training.report
-
-### Running pretraining
+Under `torchrun`, the CLI detects the distributed environment and each rank trains on `cuda:{local_rank}`:
 
 ```bash
-uv run dr-train --phase pretrain --device mps --seed 42
+uv run torchrun --nnodes=1 --nproc-per-node=4 -m dr_model.training.cli \
+    --phase pretrain --device cuda
 ```
 
-Loads `Settings` from the YAML config (default: `configs/pretrain_default.yaml`), builds the `PretrainDataModule` + `Pretrainer`, and runs the contrastive-saliency loop. Key flags: `--device`, `--seed`, `--data-index-path`, `--config`, `--resume`.
+- One process per GPU; rank 0 owns MLflow, TensorBoard, and checkpoint writes.
+- `--device` is ignored under CUDA torchrun (per-rank pinning).
+- NCCL backend on CUDA, gloo on CPU (used by the multi-process unit tests).
+- On the HPC cluster, submit via `scripts/submit_train.sh` (see [HPC Deployment](hpc.md)).
 
-### Training reports
-
-Export TensorBoard scalars to a PDF report:
-
-```bash
-uv run dr-report --logdir logs/vit_p16_e768_d12_h12_c5/
-uv run dr-report --logdir logs/vit_p16_e768_d12_h12_c5/ --output report.pdf
-```
-
-Generates a multi-page PDF with loss curves (contrastive, saliency, total), learning rate schedule, momentum schedule, and a summary page with final/best metrics.
-
-::: dr_model.training.report
+::: dr_model.training.distributed
 
 ### Pretraining loop
 
-`pretrain(model, train_dataloader, config, device=..., writer=..., resume_path=...)` runs the full MoCo v3 contrastive + saliency segmentation pretraining loop.
+`pretrain(model, train_dataloader, config, device=..., writer=..., resume_path=..., rank=0, world_size=1, sampler=None)` runs the full MoCo v3 contrastive + saliency segmentation pretraining loop.
 
 - **LR schedule**: linear warmup for `warmup_epochs`, then cosine decay to zero.
 - **Momentum schedule**: cosine ramp from `momentum_base` to `momentum_max` (fractional progress `t ∈ [0, 1]`).
 - **Lambda_s schedule**: optional cosine decay of saliency loss weight (enabled via `ss_decay`).
 - **AMP**: enabled when `precision == "16-mixed"` and `device.type == "cuda"`.
-- **Checkpointing**: interval saves at `save_every` epochs + final epoch. Saves both full training state (`checkpoint.pt`) and encoder-only weights (`epoch_{N}_encoder.pt`).
-- **TensorBoard**: logs `loss/contrastive`, `loss/saliency`, `loss/total`, `lr`, `momentum_m` per epoch.
-
-The caller resolves the device and moves the model before calling `pretrain()`. This keeps device logic out of the loop and simplifies testing.
-
-::: dr_model.training.pretrain_loop
-
-### Running pretraining
-
-```bash
-uv run dr-train --phase pretrain --device mps --seed 42
-```
-
-Loads `Settings` from the YAML config (default: `configs/pretrain_default.yaml`), builds the `PretrainDataModule` + `Pretrainer`, and runs the contrastive-saliency loop. Key flags: `--device`, `--seed`, `--data-index-path`, `--config`, `--resume`.
-
-### Training reports
-
-Export TensorBoard scalars to a PDF report:
-
-```bash
-uv run dr-report --logdir logs/vit_p16_e768_d12_h12_c5/
-uv run dr-report --logdir logs/vit_p16_e768_d12_h12_c5/ --output report.pdf
-```
-
-Generates a multi-page PDF with loss curves (contrastive, saliency, total), learning rate schedule, momentum schedule, and a summary page with final/best metrics.
-
-::: dr_model.training.report
-
-### Pretraining loop
-
-`pretrain(model, train_dataloader, config, device=..., writer=..., resume_path=...)` runs the full MoCo v3 contrastive + saliency segmentation pretraining loop.
-
-- **LR schedule**: linear warmup for `warmup_epochs`, then cosine decay to zero.
-- **Momentum schedule**: cosine ramp from `momentum_base` to `momentum_max` (fractional progress `t ∈ [0, 1]`).
-- **Lambda_s schedule**: optional cosine decay of saliency loss weight (enabled via `ss_decay`).
-- **AMP**: enabled when `precision == "16-mixed"` and `device.type == "cuda"`.
-- **Checkpointing**: interval saves at `save_every` epochs + final epoch. Saves both full training state (`checkpoint.pt`) and encoder-only weights (`epoch_{N}_encoder.pt`).
-- **TensorBoard**: logs `loss/contrastive`, `loss/saliency`, `loss/total`, `lr`, `momentum_m` per epoch.
+- **Distributed**: `rank`/`world_size`/`sampler` drive DDP-aware behaviour — per-epoch losses are all-reduced (sums + counts, so global means stay correct under uneven shards), the `DistributedSampler` is reshuffled via `set_epoch(epoch)`, and checkpoint/encoder saves are gated on `rank == 0`.
+- **Checkpointing**: interval saves at `save_every` epochs + final epoch. Saves both full training state (`checkpoint.pt`) and encoder-only weights (`epoch_{N}_encoder.pt`) from the *unwrapped* model, so keys never carry a `module.` prefix.
+- **TensorBoard**: logs `loss/contrastive`, `loss/saliency`, `loss/total`, `lr`, `momentum_m` per epoch (rank 0 only).
 - **MLflow**: logs the same 5 metrics per epoch, plus all Settings fields as params (when `config.mlflow == True`).
 
-The caller resolves the device and moves the model before calling `pretrain()`. This keeps device logic out of the loop and simplifies testing.
+The caller resolves the device, moves the model, and owns the writer's lifetime — the loop never closes it.
 
 ::: dr_model.training.pretrain_loop
+
+### Training reports
+
+Export TensorBoard scalars to a PDF report:
+
+```bash
+uv run dr-report --logdir logs/vit_p16_e768_d12_h12_c5/
+uv run dr-report --logdir logs/vit_p16_e768_d12_h12_c5/ --output report.pdf
+```
+
+Generates a multi-page PDF with loss curves (contrastive, saliency, total), learning rate schedule, momentum schedule, and a summary page with final/best metrics.
+
+::: dr_model.training.report
 
 ::: dr_model.training.cli
 
