@@ -6,16 +6,22 @@ ViT-based model for diabetic retinopathy classification — training, inference,
 
 ```
 src/dr_model/
-├── config.py            # Pydantic Settings — all hyper-parameters in one place
+├── config.py                 # Pydantic Settings — all hyper-parameters in one place
 ├── model/
-│   ├── __init__.py      # Public API: ViTBackbone
-│   └── backbone.py      # Vision Transformer encoder + classification head
-├── inference/
-│   └── __init__.py      # predict() — single-image inference pipeline
-├── serve/
-│   └── app.py           # FastAPI serving endpoint
-└── training/
-    └── cli.py           # Training entry-point (dr-train)
+│   ├── backbone.py           # ViT encoder + classification head
+│   └── pretrain.py           # Pretrainer — saliency-guided MoCo v3 (SSiT)
+├── data/
+│   ├── pair_dataset.py       # Paired image/saliency dataset + transforms
+│   └── pretrain_datamodule.py# PretrainDataModule — pickle index + DistributedSampler
+├── training/
+│   ├── cli.py                # Training entry-point (dr-train)
+│   ├── distributed.py        # DDP runtime: torchrun detection, rank gating, wrap/unwrap
+│   ├── pretrain_loop.py      # Pretraining loop (schedules, checkpoints, metrics)
+│   └── report.py             # TensorBoard → PDF training report
+├── logging/                  # MLflow + TensorBoard loggers
+├── inference/                # predict() — single-image inference pipeline
+├── serve/                    # FastAPI serving endpoint
+└── utils/                    # device resolution, determinism, timer
 ```
 
 ## ViTBackbone
@@ -153,6 +159,10 @@ uv run python scripts/create_smoke_dataset.py
 
 # 2. Run one pretraining epoch on CPU
 uv run dr-train --phase pretrain --device cpu --config configs/pretrain_smoke.yaml
+
+# 3. DDP smoke — two processes, no GPU needed (gloo backend on CPU)
+uv run torchrun --nnodes=1 --nproc-per-node=2 -m dr_model.training.cli \
+    --phase pretrain --device cpu --config configs/pretrain_smoke.yaml
 ```
 
 This logs to MLflow (`mlflow` experiment `dr-pretrain-smoke`) and TensorBoard (`logs/`).
@@ -164,6 +174,37 @@ uv run dr-train --phase pretrain
 ```
 
 Uses `configs/pretrain_default.yaml` by default. Override with `--config` or `DR_CONFIG_FILE`.
+
+### Distributed / multi-GPU (DDP)
+
+Single-node data-parallel training via `torchrun`. Each process detects the
+`torchrun` environment, pins itself to `cuda:{local_rank}`, and the model is
+wrapped in `DistributedDataParallel` (with BatchNorm converted to
+`SyncBatchNorm` on CUDA).
+
+```bash
+# Single GPU
+uv run dr-train --phase pretrain --device cuda
+
+# N GPUs on one workstation
+uv run torchrun --nnodes=1 --nproc-per-node=N -m dr_model.training.cli \
+    --phase pretrain --device cuda
+
+# HPC cluster via Slurm + Singularity (see docs/hpc.md)
+./scripts/submit_train.sh smoke 2     # 2x GPU — proves DDP gradient sync
+./scripts/submit_train.sh full 4      # 4x GPU full pretraining
+```
+
+Notes:
+
+- Only rank 0 writes checkpoints and logs to MLflow/TensorBoard; other ranks
+  only train and participate in gradient sync.
+- Under CUDA torchrun, `--device` is ignored — each rank always uses
+  `cuda:{local_rank}`.
+- Per-epoch losses are all-reduced across ranks (sums + counts), so global
+  averages stay correct even with uneven shards.
+- Checkpoints are saved from the *unwrapped* model, so keys never carry a
+  `module.` prefix.
 
 ## Testing
 
