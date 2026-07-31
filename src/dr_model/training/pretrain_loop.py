@@ -10,15 +10,16 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import torch
 import torch.nn as nn
 from torch.optim import AdamW
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, DistributedSampler
 
 from dr_model.config import Settings
 from dr_model.model.pretrain import Pretrainer
+from dr_model.training.distributed import rank_zero_only, unwrap_model
 from dr_model.utils.timer import Timer
 
 if TYPE_CHECKING:
@@ -60,6 +61,7 @@ def _adjust_lambda_s(config: Settings, t: float) -> float:
     return config.lambda_s * 0.5 * (1.0 + math.cos(math.pi * t))
 
 
+@rank_zero_only
 def _log_epoch(
     epoch: int,
     config: Settings,
@@ -69,8 +71,9 @@ def _log_epoch(
     moco_m: float,
     t_epoch: float,
     writer: SummaryWriter | None,
+    rank: int = 0,
 ) -> None:
-    """Print and log epoch metrics to TensorBoard and MLflow."""
+    """Print and log epoch metrics to TensorBoard and MLflow (rank 0 only)."""
     print(
         f"Epoch {epoch + 1}/{config.max_epochs} — "
         f"cl_loss={avg_cl:.4f}  ss_loss={avg_ss:.4f}  "
@@ -108,10 +111,14 @@ def _save_checkpoint(
     optimizer: AdamW,
     scaler: torch.cuda.amp.GradScaler | None,
 ) -> None:
-    """Persist full training state for potential resume."""
+    """Persist full training state for potential resume.
+
+    The state dict is taken from the *unwrapped* model so keys never carry
+    a ``module.`` prefix under DDP.
+    """
     state: dict[str, object] = {
         "epoch": epoch,
-        "state_dict": model.state_dict(),
+        "state_dict": unwrap_model(model).state_dict(),
         "optimizer": optimizer.state_dict(),
     }
     if scaler is not None:
@@ -121,15 +128,20 @@ def _save_checkpoint(
 
 def _save_encoder(path: Path, model: Pretrainer) -> None:
     """Persist only the base encoder weights for downstream fine-tuning."""
-    torch.save(model.base_encoder.state_dict(), path)
+    torch.save(unwrap_model(model).base_encoder.state_dict(), path)
 
 
+@rank_zero_only
 def _finalize_training(
     timer: Timer,
     writer: SummaryWriter | None,
     config: Settings,
+    rank: int = 0,
 ) -> None:
-    """Log total wall time and close the writer."""
+    """Log total wall time (rank 0 only).
+
+    Writer teardown is owned by the CLI — this helper never closes it.
+    """
     t_total = timer.total()
     if writer is not None:
         writer.add_scalar("time/total", t_total)
@@ -137,25 +149,50 @@ def _finalize_training(
         import mlflow
 
         mlflow.log_metric("time/total", t_total)
-    if writer is not None:
-        writer.close()
+
+
+def _reduce_epoch_metrics(
+    cl_sum: float,
+    ss_sum: float,
+    steps: int,
+    world_size: int,
+    device: torch.device,
+) -> tuple[float, float]:
+    """Combine per-rank epoch loss sums and step counts into a global mean.
+
+    Sums *and* counts are all-reduced (rather than averaging per-rank means),
+    which stays correct even when ranks process different numbers of batches.
+    """
+    if world_size <= 1:
+        return cl_sum / steps, ss_sum / steps
+
+    cl_t = torch.tensor([cl_sum], device=device)
+    ss_t = torch.tensor([ss_sum], device=device)
+    cnt_t = torch.tensor([float(steps)], device=device)
+    torch.distributed.all_reduce(cl_t, op=torch.distributed.ReduceOp.SUM)
+    torch.distributed.all_reduce(ss_t, op=torch.distributed.ReduceOp.SUM)
+    torch.distributed.all_reduce(cnt_t, op=torch.distributed.ReduceOp.SUM)
+    return cl_t.item() / cnt_t.item(), ss_t.item() / cnt_t.item()
 
 
 def pretrain(
-    model: Pretrainer,
+    model: nn.Module,
     train_dataloader: DataLoader,
     config: Settings,
     *,
     device: torch.device,
     writer: SummaryWriter | None = None,
     resume_path: Path | None = None,
+    rank: int = 0,
+    world_size: int = 1,
+    sampler: DistributedSampler | None = None,
 ) -> None:
     """Run the full pretraining loop.
 
     Parameters
     ----------
     model
-        ``Pretrainer`` instance (moved to device by the caller).
+        ``Pretrainer`` (possibly DDP-wrapped), moved to device by the caller.
     train_dataloader
         Yields ``(x1, x2, m1, m2)`` batches.
     config
@@ -163,9 +200,17 @@ def pretrain(
     device
         Target device.  Caller is responsible for moving the model.
     writer
-        Optional TensorBoard writer.  ``None`` disables logging.
+        Optional TensorBoard writer.  ``None`` disables logging.  Owned by
+        the caller — this loop never closes it.
     resume_path
         Path to a ``checkpoint.pt`` to resume from.
+    rank
+        Global rank of this process.
+    world_size
+        Total number of processes.
+    sampler
+        Optional :class:`DistributedSampler` — reshuffled each epoch via
+        ``set_epoch`` so shards rotate between epochs.
     """
     use_amp = config.precision == "16-mixed" and device.type == "cuda"
     scaler: torch.cuda.amp.GradScaler | None = None
@@ -178,10 +223,12 @@ def pretrain(
         weight_decay=0.1,
     )
 
+    raw_model = cast(Pretrainer, unwrap_model(model))
+
     start_epoch = 0
     if resume_path is not None and resume_path.exists():
         ckpt = torch.load(resume_path, map_location="cpu", weights_only=False)
-        model.load_state_dict(ckpt["state_dict"])
+        raw_model.load_state_dict(ckpt["state_dict"])
         optimizer.load_state_dict(ckpt["optimizer"])
         start_epoch = ckpt["epoch"] + 1
         if scaler is not None and "scaler" in ckpt:
@@ -193,8 +240,12 @@ def pretrain(
     model.train()
     timer = Timer()
     for epoch in range(start_epoch, config.max_epochs):
-        epoch_cl_loss = 0.0
-        epoch_ss_loss = 0.0
+        if sampler is not None:
+            sampler.set_epoch(epoch)
+
+        epoch_cl_sum = 0.0
+        epoch_ss_sum = 0.0
+        epoch_steps = 0
         for step, (x1, x2, m1, m2) in enumerate(train_dataloader):
             step_ratio = epoch + step / len(train_dataloader)
             lr = _adjust_lr(optimizer, config, step_ratio)
@@ -223,20 +274,20 @@ def pretrain(
                 nn.utils.clip_grad_norm_(model.parameters(), config.gradient_clip_val)
                 optimizer.step()
 
-            epoch_cl_loss += cl_loss.item()
-            epoch_ss_loss += ss_loss.item()
+            epoch_cl_sum += cl_loss.item()
+            epoch_ss_sum += ss_loss.item()
+            epoch_steps += 1
 
-        steps = len(train_dataloader)
-        avg_cl = epoch_cl_loss / steps
-        avg_ss = epoch_ss_loss / steps
+        avg_cl, avg_ss = _reduce_epoch_metrics(epoch_cl_sum, epoch_ss_sum, epoch_steps, world_size, device)
 
-        _log_epoch(epoch, config, avg_cl, avg_ss, lr, moco_m, timer.lap(), writer)
+        _log_epoch(epoch, config, avg_cl, avg_ss, lr, moco_m, timer.lap(), writer, rank=rank)
 
-        if (epoch + 1) % config.save_every == 0 and (epoch + 1) < config.max_epochs:
-            _save_checkpoint(save_dir / "checkpoint.pt", epoch, model, optimizer, scaler)
-            _save_encoder(save_dir / f"epoch_{epoch + 1}_encoder.pt", model)
+        if rank == 0 and (epoch + 1) % config.save_every == 0 and (epoch + 1) < config.max_epochs:
+            _save_checkpoint(save_dir / "checkpoint.pt", epoch, raw_model, optimizer, scaler)
+            _save_encoder(save_dir / f"epoch_{epoch + 1}_encoder.pt", raw_model)
 
-    _save_checkpoint(save_dir / "checkpoint.pt", config.max_epochs - 1, model, optimizer, scaler)
-    _save_encoder(save_dir / f"epoch_{config.max_epochs}_encoder.pt", model)
+    if rank == 0:
+        _save_checkpoint(save_dir / "checkpoint.pt", config.max_epochs - 1, raw_model, optimizer, scaler)
+        _save_encoder(save_dir / f"epoch_{config.max_epochs}_encoder.pt", raw_model)
 
-    _finalize_training(timer, writer, config)
+    _finalize_training(timer, writer, config, rank=rank)
