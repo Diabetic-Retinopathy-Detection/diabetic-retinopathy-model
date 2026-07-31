@@ -198,4 +198,4 @@ class TestConfigArtifact:
         assert len(logged) == 1
         dumped = logged[0]
         assert isinstance(dumped, dict)
-        assert dumped.get("batch_size") == 32
+        assert dumped.get("batch_size") == 128

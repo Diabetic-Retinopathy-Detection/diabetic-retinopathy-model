@@ -3,7 +3,7 @@
 #SBATCH --partition=gpu
 #SBATCH --qos=public_gpu
 #SBATCH --gres=gpu:1
-#SBATCH --time=24:00:00
+#SBATCH --time=47:00:00
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=16
 #SBATCH --output=/scratch/users/%u/tb-logs/%j.out
@@ -42,6 +42,7 @@ singularity exec --nv --writable-tmpfs \
     --bind "${SCRATCH}/tb-logs:/app/logs" \
     --bind "${SCRATCH}/mlflow:/scratch/mlflow" \
     --env MLFLOW_TRACKING_URI="sqlite:////scratch/mlflow/mlflow.db" \
+    --env PYTHONDONTWRITEBYTECODE=1 \
     "${SIF}" \
     uv run torchrun --nnodes=1 --nproc-per-node="${N_GPUS}" -m dr_model.training.cli \
         --phase pretrain --device cuda \
