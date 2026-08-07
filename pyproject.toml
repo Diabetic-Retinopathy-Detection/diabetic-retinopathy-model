@@ -82,7 +82,11 @@ warn_unused_ignores = true
 show_error_codes = true
 
 [[tool.mypy.overrides]]
-module = "torchvision.transforms"
+module = [
+    "torchvision",
+    "torchvision.datasets",
+    "torchvision.transforms",
+]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
