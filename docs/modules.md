@@ -20,6 +20,11 @@ All architecture parameters are read from `Settings` -- no magic constants.
 Returns the full encoder sequence `[CLS, patch_1, ..., patch_N]` without the classification head.
 When `pmap` is provided, applies saliency-guided patch masking: only the top-k patches (by saliency score) are fed to the transformer blocks. This is used by the momentum encoder during pretraining.
 
+`ViTBackbone(config, input_size=...)` accepts an optional square resolution that overrides
+`config.image_size` for sizing the positional-embedding grid. `interpolate_pos_embed`
+bicubically resamples the patch grid of a pretrained `pos_embed` to a new token count while
+keeping the class token fixed — this lets a checkpoint trained at 224 be fine-tuned at 384.
+
 ::: dr_model.model.backbone
 
 ## Pretrainer
@@ -159,6 +164,60 @@ All schedules are driven by fractional training progress `t = step_ratio / max_e
 TensorBoard logging when a `SummaryWriter` is provided: contrastive loss, saliency loss, total loss, learning rate, and momentum per epoch.
 
 ::: dr_model.training.pretrain_loop
+
+## Fine-tuning
+
+Supervised fine-tuning of a pretrained trunk for DR grading, following SSiT's `eval.py`.
+
+### Finetuner
+
+`Finetuner` wraps a `ViTBackbone` built at `config.finetune_input_size` (384). The backbone's
+classification head is replaced with `nn.Identity`, and a single linear layer maps the
+representation to logits. The representation is the concatenation of the CLS token and the
+mean of all patch tokens — SSiT's `feat_concat` (§III-B):
+
+```
+forward(x) -> backbone.forward_features(x) -> [CLS ; mean(patch tokens)] -> Linear -> logits
+```
+
+`Finetuner(config, checkpoint_path=...)` optionally seeds the trunk from a pretrain
+checkpoint. Both DRC-46 checkpoint formats are accepted:
+
+- `checkpoint.pt` — full training state, keys prefixed with `base_encoder.`.
+- `epoch_{N}_encoder.pt` — bare `base_encoder.state_dict()`, keys unprefixed.
+
+The pretrain classification head (an MLP projector under `head.*`) is dropped; the `pos_embed`
+is interpolated to the fine-tuning resolution when the checkpoint was trained at a different
+one. After loading, the only missing keys are the new `head.weight`/`head.bias`.
+
+### Schedule
+
+- **Learning rate**: linear warmup from 0 to `finetune_lr` over `finetune_warmup_epochs`,
+  then cosine decay to `finetune_min_lr`. Matches SSiT when `finetune_min_lr == 0`.
+- **Optimiser**: AdamW with `finetune_weight_decay`; loss is plain cross-entropy.
+- **Evaluation**: quadratic-weighted Cohen's kappa on the validation split each epoch.
+
+### Checkpoints
+
+Full training state (model, optimizer, scaler) saved under `<checkpoint_dir>/finetune/`:
+
+- `best_validation_weights.pt` — best validation kappa so far.
+- `epoch_{N}.pt` — every `save_every` epochs (excluding the final).
+- `epoch_{finetune_epochs}.pt` — always saved after the last epoch.
+
+### Running fine-tuning
+
+```bash
+python scripts/finetune.py --config configs/finetune_default.yaml
+```
+
+Loads `Settings` from the YAML config, seeds the trunk from `finetune_checkpoint` when set,
+and runs the loop. Key flags: `--device`, `--seed`, `--finetune-epochs`, `--batch-size`,
+`--finetune-checkpoint`, `--num-workers`.
+
+::: dr_model.model.finetune
+
+::: dr_model.training.finetune_loop
 
 ## Training CLI
 
