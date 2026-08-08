@@ -180,15 +180,20 @@ mean of all patch tokens — SSiT's `feat_concat` (§III-B):
 forward(x) -> backbone.forward_features(x) -> [CLS ; mean(patch tokens)] -> Linear -> logits
 ```
 
-`Finetuner(config, checkpoint_path=...)` optionally seeds the trunk from a pretrain
-checkpoint. Both DRC-46 checkpoint formats are accepted:
+`Finetuner(config, checkpoint_path=...)` optionally seeds the trunk from a checkpoint.
+The format is detected from the key prefixes:
 
-- `checkpoint.pt` — full training state, keys prefixed with `base_encoder.`.
-- `epoch_{N}_encoder.pt` — bare `base_encoder.state_dict()`, keys unprefixed.
+- `checkpoint.pt` (DRC-46) — full training state, keys prefixed with `base_encoder.`.
+- `epoch_{N}_encoder.pt` (DRC-46) — bare `base_encoder.state_dict()`, keys unprefixed.
+- `<checkpoint_dir>/finetune/epoch_{N}.pt` (DRC-49) — fine-tuned model, keys
+  `backbone.*` plus a trained classifier `head.*`.
 
-The pretrain classification head (an MLP projector under `head.*`) is dropped; the `pos_embed`
-is interpolated to the fine-tuning resolution when the checkpoint was trained at a different
-one. After loading, the only missing keys are the new `head.weight`/`head.bias`.
+For DRC-46 checkpoints the pretrain classification head (an MLP projector under `head.*`)
+is dropped and only the trunk is transferred. For DRC-49 checkpoints the trained classifier
+head is loaded as well — provided every head key's shape matches (checked before
+`load_state_dict`, avoiding size-mismatch errors); otherwise the head stays randomly
+initialised and only the trunk is transferred. The `pos_embed` is interpolated to the
+fine-tuning resolution when the checkpoint was trained at a different one.
 
 ### Schedule
 

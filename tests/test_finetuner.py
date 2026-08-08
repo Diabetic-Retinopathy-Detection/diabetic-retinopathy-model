@@ -140,6 +140,32 @@ class TestFinetuner:
         with pytest.raises(RuntimeError, match="Unexpected missing keys"):
             Finetuner(_settings(None), checkpoint_path=str(tmp_path / "bad.pt"))
 
+    def test_loads_drc49_finetune_checkpoint(self, tmp_path: Path) -> None:
+        config = _settings(None)
+        source = Finetuner(config)
+        ckpt = {"epoch": 2, "state_dict": source.state_dict(), "optimizer": {}}
+        torch.save(ckpt, tmp_path / "finetune.pt")
+
+        model = Finetuner(config, checkpoint_path=str(tmp_path / "finetune.pt"))
+
+        source_sd = source.state_dict()
+        for key, value in model.state_dict().items():
+            assert torch.equal(value, source_sd[key])
+
+    def test_drc49_head_shape_mismatch_keeps_random_head(self, tmp_path: Path) -> None:
+        source_config = _settings(None)
+        source = Finetuner(source_config)
+        torch.save({"epoch": 1, "state_dict": source.state_dict(), "optimizer": {}}, tmp_path / "finetune.pt")
+
+        target_config = source_config.model_copy(update={"num_classes": 3})
+        model = Finetuner(target_config, checkpoint_path=str(tmp_path / "finetune.pt"))
+
+        source_backbone_sd = source.backbone.state_dict()
+        for key, value in model.backbone.state_dict().items():
+            assert torch.equal(value, source_backbone_sd[key])
+        assert model.head.weight.shape == (3, 2 * target_config.embed_dim)
+        assert not torch.equal(model.head.weight, source.head.weight)
+
 
 class TestAdjustLr:
     def _opt(self, config: Settings) -> torch.optim.Optimizer:
