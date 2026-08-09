@@ -6,13 +6,51 @@ All architecture parameters are read from :class:`dr_model.config.Settings`.
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import cast
 
 import torch
+import torch.nn.functional as F
 from torch import Tensor, nn
 
 from dr_model.config import Settings
+
+
+def interpolate_pos_embed(pos_embed: Tensor, new_num_patches: int) -> Tensor:
+    """Resize a learned positional embedding to a different token grid.
+
+    The leading class token is kept unchanged; the 2-D patch grid is
+    bicubically resampled.  This mirrors SSiT/DINO, which evaluate a
+    checkpoint trained at one resolution (e.g. 224x224) at a higher one
+    (e.g. 384x384).
+
+    Parameters
+    ----------
+    pos_embed : Tensor
+        Learned positional embedding, shape ``(1, num_patches + 1, dim)``.
+    new_num_patches : int
+        Target number of patch tokens (a perfect square).
+
+    Returns
+    -------
+    Tensor
+        Resized embedding, shape ``(1, new_num_patches + 1, dim)``.  Returns
+        ``pos_embed`` unchanged when the grid already matches.
+    """
+    if pos_embed.shape[1] == new_num_patches + 1:
+        return pos_embed
+
+    dim = pos_embed.shape[-1]
+    cls = pos_embed[:, 0:1]
+    pos = pos_embed[:, 1:]
+    old_side = math.isqrt(pos.shape[1])
+    new_side = math.isqrt(new_num_patches)
+
+    pos = pos.reshape(1, old_side, old_side, dim).permute(0, 3, 1, 2)
+    pos = F.interpolate(pos, size=(new_side, new_side), mode="bicubic", align_corners=False)
+    pos = pos.flatten(2).transpose(1, 2)
+    return torch.cat((cls, pos), dim=1)
 
 
 class PatchEmbed(nn.Module):
@@ -89,6 +127,11 @@ class ViTBackbone(nn.Module):
     ----------
     config : Settings
         Application settings containing architecture hyper-parameters.
+    input_size : int | None
+        Optional square input resolution used to size the positional
+        embedding grid, overriding ``config.image_size``.  Lets a checkpoint
+        trained at one resolution (e.g. 224) be evaluated at another (e.g.
+        384) after :func:`interpolate_pos_embed`.
 
     Attributes
     ----------
@@ -97,7 +140,7 @@ class ViTBackbone(nn.Module):
         sequence.
     """
 
-    def __init__(self, config: Settings) -> None:
+    def __init__(self, config: Settings, input_size: int | None = None) -> None:
         super().__init__()
 
         patch_size = config.patch_size
@@ -110,6 +153,8 @@ class ViTBackbone(nn.Module):
         num_classes = config.num_classes
 
         img_h, img_w = config.image_size
+        if input_size is not None:
+            img_h = img_w = input_size
         num_patches = (img_h // patch_size) * (img_w // patch_size)
 
         self.patch_embed = PatchEmbed(patch_size, embed_dim)

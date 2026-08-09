@@ -2,9 +2,10 @@
 
 Loads the ``train/``, ``val/``, ``test/`` splits that ``utils/crop.py``
 materialised on disk (one subdirectory per DR grade, ``0``-``4``) and
-exposes one :class:`~torch.utils.data.DataLoader` per split.  There is no
-splitting or label-resolution logic here — the filesystem already encodes
-the labels and the splits.
+exposes one :class:`~torch.utils.data.DataLoader` per split.  The validation
+split is resolved on disk as ``val/`` or ``valid/`` (DRC-25's DDR preparation
+stages ``valid/``).  There is no splitting or label-resolution logic here —
+the filesystem already encodes the labels and the splits.
 
 The train pipeline reproduces SSiT's ``eval.py`` ``data_transforms``
 exactly (flips, mild ``RandomResizedCrop``, colour jitter, rotation,
@@ -15,6 +16,8 @@ pretraining resolution ``input_size`` (224).
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from torch.utils.data import DataLoader
 from torchvision import transforms
 
@@ -22,7 +25,21 @@ from dr_model.config import Settings
 from dr_model.data.dataset import GradingDataset
 from dr_model.utils.determinism import worker_init_fn
 
-SPLITS = ("train", "val", "test")
+#: Canonical split name -> on-disk directory names to accept, in order.
+#: ``valid`` is the split name DRC-25's DDR ImageFolder preparation stages.
+SPLIT_DIR_ALIASES: dict[str, tuple[str, ...]] = {"val": ("val", "valid")}
+
+
+def _resolve_split_dir(root: Path, split: str) -> Path:
+    """Return the on-disk split directory, trying each alias in order."""
+    candidates = SPLIT_DIR_ALIASES.get(split, (split,))
+    for name in candidates:
+        candidate = root / name
+        if candidate.is_dir():
+            return candidate
+    tried = ", ".join(str(root / name) for name in candidates)
+    msg = f"Fine-tuning split directory not found: {tried}"
+    raise FileNotFoundError(msg)
 
 
 def build_train_transform(config: Settings) -> transforms.Compose:  # type: ignore[no-any-unimported]
@@ -60,7 +77,8 @@ class FinetuneDataModule:
     ----------
     config : Settings
         Application settings.  ``finetune_dataset_root`` must point at a
-        dataset root containing ``train/``, ``val/``, and ``test/``.
+        dataset root containing ``train/``, ``test/``, and a validation
+        split named ``val/`` or ``valid/``.
     """
 
     def __init__(self, config: Settings) -> None:
@@ -76,15 +94,13 @@ class FinetuneDataModule:
             msg = "config.finetune_dataset_root must be set for fine-tuning"
             raise ValueError(msg)
 
-        for split in SPLITS:
-            split_dir = root / split
-            if not split_dir.is_dir():
-                msg = f"Fine-tuning split directory not found: {split_dir}"
-                raise FileNotFoundError(msg)
-
-        self.train_dataset = GradingDataset(root / "train", transform=build_train_transform(self.config))
-        self.val_dataset = GradingDataset(root / "val", transform=build_eval_transform(self.config))
-        self.test_dataset = GradingDataset(root / "test", transform=build_eval_transform(self.config))
+        self.train_dataset = GradingDataset(
+            _resolve_split_dir(root, "train"), transform=build_train_transform(self.config)
+        )
+        self.val_dataset = GradingDataset(_resolve_split_dir(root, "val"), transform=build_eval_transform(self.config))
+        self.test_dataset = GradingDataset(
+            _resolve_split_dir(root, "test"), transform=build_eval_transform(self.config)
+        )
 
     def train_dataloader(self) -> DataLoader:
         """Shuffled train loader with ``drop_last=True`` (matches SSiT)."""
