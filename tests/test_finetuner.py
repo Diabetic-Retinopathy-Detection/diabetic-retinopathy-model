@@ -83,7 +83,7 @@ class TestFinetuner:
     def test_forward_representation_with_identity_head(self) -> None:
         config = _settings(None)
         model = Finetuner(config)
-        model.head = nn.Identity()
+        model.head = nn.Identity()  # type: ignore[assignment]
 
         out = model(torch.randn(2, 3, 384, 384))
 
@@ -240,7 +240,7 @@ class TestRun:
         model = Finetuner(config)
         writer = _FakeWriter()
 
-        run(config=config, model=model, datamodule=dm, device=torch.device("cpu"), writer=writer)
+        run(config=config, model=model, datamodule=dm, device=torch.device("cpu"), writer=writer)  # type: ignore[arg-type]
 
         tags = {tag for tag, _value, _step in writer.scalars}
         assert {"loss/train", "loss/val", "kappa/val", "lr"} <= tags
