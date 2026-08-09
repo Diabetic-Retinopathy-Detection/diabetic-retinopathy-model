@@ -12,13 +12,18 @@ exactly (flips, mild ``RandomResizedCrop``, colour jitter, rotation,
 affine).  The eval pipeline uses SSiT's plain ``Resize → ToTensor →
 Normalize``.  Both run at ``finetune_input_size`` (384), distinct from the
 pretraining resolution ``input_size`` (224).
+
+Under ``torch.distributed`` the train loader is sharded with a
+:class:`DistributedSampler` (stored as ``self.sampler``); the training
+loop must call ``sampler.set_epoch(epoch)`` each epoch to reshuffle.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from torch.utils.data import DataLoader
+import torch
+from torch.utils.data import DataLoader, DistributedSampler
 from torchvision import transforms
 
 from dr_model.config import Settings
@@ -86,6 +91,7 @@ class FinetuneDataModule:
         self.train_dataset: GradingDataset | None = None
         self.val_dataset: GradingDataset | None = None
         self.test_dataset: GradingDataset | None = None
+        self.sampler: DistributedSampler | None = None
 
     def setup(self) -> None:
         """Validate the split tree and build the three datasets."""
@@ -103,17 +109,32 @@ class FinetuneDataModule:
         )
 
     def train_dataloader(self) -> DataLoader:
-        """Shuffled train loader with ``drop_last=True`` (matches SSiT)."""
+        """Shuffled train loader with ``drop_last=True`` (matches SSiT).
+
+        When ``torch.distributed`` is initialised, the dataset is sharded
+        with a :class:`DistributedSampler` (stored as ``self.sampler``) so
+        each rank trains on a disjoint slice.  The training loop must call
+        ``sampler.set_epoch(epoch)`` each epoch to reshuffle.
+        """
         if self.train_dataset is None:
             msg = "Call setup() before train_dataloader()"
             raise RuntimeError(msg)
+
+        sampler: DistributedSampler | None = None
+        shuffle = True
+        if torch.distributed.is_initialized():
+            sampler = DistributedSampler(self.train_dataset, shuffle=True, drop_last=True)
+            self.sampler = sampler
+            shuffle = False
+
         return DataLoader(
             self.train_dataset,
             batch_size=self.config.batch_size,
             num_workers=self.config.num_workers,
             pin_memory=self.config.pin_memory,
-            shuffle=True,
+            shuffle=shuffle,
             drop_last=True,
+            sampler=sampler,
             worker_init_fn=worker_init_fn if self.config.seed >= 0 else None,
         )
 

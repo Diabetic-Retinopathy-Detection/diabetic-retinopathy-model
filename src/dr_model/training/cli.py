@@ -12,11 +12,11 @@ import mlflow
 import torch
 import torch.nn as nn
 
-os.environ.setdefault("DR_CONFIG_FILE", "configs/pretrain_default.yaml")
-
 from dr_model.config import Settings
+from dr_model.data.finetune_datamodule import FinetuneDataModule
 from dr_model.data.pretrain_datamodule import PretrainDataModule
 from dr_model.logging import end_mlflow_run, init_mlflow_run, init_tensorboard_logger
+from dr_model.model.finetune import Finetuner
 from dr_model.model.pretrain import Pretrainer
 from dr_model.training.distributed import (
     DistributedContext,
@@ -26,6 +26,7 @@ from dr_model.training.distributed import (
     is_rank_zero,
     wrap_model,
 )
+from dr_model.training.finetune_loop import run
 from dr_model.training.pretrain_loop import pretrain
 from dr_model.utils import resolve_device, setup_determinism
 
@@ -84,21 +85,42 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Root data directory containing cropped/ and saliency/ (overrides config).",
     )
+    parser.add_argument(
+        "--finetune-epochs",
+        type=int,
+        default=None,
+        help="Number of fine-tuning epochs (overrides config).",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=None,
+        help="Batch size (overrides config).",
+    )
+    parser.add_argument(
+        "--finetune-checkpoint",
+        type=str,
+        default=None,
+        help="Pretrain checkpoint seeding the fine-tuning trunk (overrides config).",
+    )
+    parser.add_argument(
+        "--num-workers",
+        type=int,
+        default=None,
+        help="DataLoader worker processes (overrides config).",
+    )
     args = parser.parse_args(argv)
 
     if args.config is not None:
         os.environ["DR_CONFIG_FILE"] = args.config
+    else:
+        default_config = (
+            "configs/pretrain_default.yaml" if args.phase == "pretrain" else "configs/finetune_default.yaml"
+        )
+        os.environ.setdefault("DR_CONFIG_FILE", default_config)
 
     config = Settings()
-    updates: dict[str, object] = {}
-    if args.seed is not None:
-        updates["seed"] = args.seed
-    if args.deterministic is not None:
-        updates["deterministic_algorithms"] = args.deterministic
-    if args.data_index_path is not None:
-        updates["data_index_path"] = Path(args.data_index_path)
-    if args.data_dir is not None:
-        updates["data_dir"] = Path(args.data_dir)
+    updates = _collect_updates(args)
     if updates:
         config = config.model_copy(update=updates)
 
@@ -111,8 +133,29 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.phase == "pretrain":
         return _run_pretrain(config, device, args.resume, ctx)
-    print(f"Phase '{args.phase}' not implemented yet.")
-    return 1
+    return _run_finetune(config, device, ctx)
+
+
+def _collect_updates(args: argparse.Namespace) -> dict[str, object]:
+    """Map CLI overrides onto ``Settings`` field names."""
+    updates: dict[str, object] = {}
+    if args.seed is not None:
+        updates["seed"] = args.seed
+    if args.deterministic is not None:
+        updates["deterministic_algorithms"] = args.deterministic
+    if args.data_index_path is not None:
+        updates["data_index_path"] = Path(args.data_index_path)
+    if args.data_dir is not None:
+        updates["data_dir"] = Path(args.data_dir)
+    if args.finetune_epochs is not None:
+        updates["finetune_epochs"] = args.finetune_epochs
+    if args.batch_size is not None:
+        updates["batch_size"] = args.batch_size
+    if args.finetune_checkpoint is not None:
+        updates["finetune_checkpoint"] = args.finetune_checkpoint
+    if args.num_workers is not None:
+        updates["num_workers"] = args.num_workers
+    return updates
 
 
 def _run_pretrain(
@@ -171,6 +214,59 @@ def _run_pretrain(
 
     if is_rank_zero(ctx):
         print("Pretraining complete.")
+    return 0
+
+
+def _run_finetune(
+    config: Settings,
+    device: torch.device,
+    ctx: DistributedContext | None = None,
+) -> int:
+    if ctx is None:
+        ctx = detect_distributed_context(str(device))
+    if ctx.enabled:
+        device = ctx.device
+    init_distributed(ctx)
+
+    dm = FinetuneDataModule(config)
+    dm.setup()
+
+    model: nn.Module = Finetuner(config, checkpoint_path=config.finetune_checkpoint).to(device)
+    model = wrap_model(model, ctx)
+
+    writer = None
+    if is_rank_zero(ctx):
+        if config.mlflow:
+            init_mlflow_run(
+                config,
+                experiment_name=config.mlflow_experiment_name,
+                run_name_prefix="finetune",
+                device=device,
+            )
+            mlflow.log_dict(config.model_dump(), "config.yaml")
+
+        if config.tensorboard:
+            writer = init_tensorboard_logger(config, run_name=f"finetune_{config.model_name}")
+
+    try:
+        run(
+            config=config,
+            model=model,
+            datamodule=dm,
+            device=device,
+            writer=writer,
+            rank=ctx.rank,
+            world_size=ctx.world_size,
+        )
+    finally:
+        if writer is not None:
+            writer.close()
+        if is_rank_zero(ctx) and config.mlflow:
+            end_mlflow_run()
+        cleanup_distributed()
+
+    if is_rank_zero(ctx):
+        print("Fine-tuning complete.")
     return 0
 
 
