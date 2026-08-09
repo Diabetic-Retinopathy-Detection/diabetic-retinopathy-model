@@ -207,7 +207,7 @@ This is also the right machine to build the amd64 image for the cluster:
 | `--bind ...:/scratch/mlflow` | Mount MLflow database directory |
 | `--env MLFLOW_TRACKING_URI=...` | Point MLflow to SQLite on scratch (not file store) |
 
-**Note:** We use `uv run python -m dr_model.training.cli` instead of `uv run dr-train` because the entry point is not on Singularity's PATH.
+**Note:** We use `uv run python -m dr_model.training.cli` and `uv run dr-train` interchangeably — both work, since `uv run` puts the project's `dr-train` entry point on `PATH`. The `python -m` form is used with `torchrun`, which has its own `-m` flag.
 
 ## MLflow on cluster
 
@@ -239,8 +239,8 @@ Or log to a remote MLflow server instead:
 | `database or disk is full` | MLflow writing to tiny tmpfs overlay | Bind-mount mlflow dir + set `MLFLOW_TRACKING_URI` to SQLite on scratch |
 | `No space left on device` | TensorBoard/checkpoints writing to tmpfs | Bind-mount `logs/` and `checkpoints/` to scratch |
 | `unexpected pos 64 vs 0` | `torch.save` failing on tmpfs | Bind-mount `checkpoints/` to scratch |
-| `No module named dr_model` | Entry point `dr-train` not on PATH | Use `uv run python -m dr_model.training.cli` instead |
-| `No such file or directory: dr-train` | Same as above | Use `python -m` |
+| `No module named dr_model` | `python -m` invoked with the system Python instead of the venv | Use `uv run python -m dr_model.training.cli` |
+| `No such file or directory: dr-train` | Entry point called without `uv run` | Use `uv run dr-train` |
 | MLflow `filestore in maintenance mode` | MLflow 3.x dropped file store | Use `sqlite:///` URI |
 | `Failed to initialize cache at .cache/uv` | Home directory is read-only | Use `--writable-tmpfs` and `--home /tmp` |
 | `CUDA out of memory` | Batch too large for GPU VRAM | Reduce `batch_size` in config |
