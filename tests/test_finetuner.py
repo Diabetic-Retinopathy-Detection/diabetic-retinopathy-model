@@ -140,7 +140,7 @@ class TestFinetuner:
         with pytest.raises(RuntimeError, match="Unexpected missing keys"):
             Finetuner(_settings(None), checkpoint_path=str(tmp_path / "bad.pt"))
 
-    def test_loads_drc49_finetune_checkpoint(self, tmp_path: Path) -> None:
+    def test_loads_finetune_checkpoint(self, tmp_path: Path) -> None:
         config = _settings(None)
         source = Finetuner(config)
         ckpt = {"epoch": 2, "state_dict": source.state_dict(), "optimizer": {}}
@@ -199,6 +199,28 @@ class TestAdjustLr:
         opt = self._opt(config)
 
         assert adjust_lr(opt, config, 5.0) == pytest.approx(config.finetune_lr)
+
+
+class TestFinetuneDataModule:
+    def test_setup_accepts_valid_split_dir(self, tmp_path: Path) -> None:
+        root = tmp_path / "dataset"
+        for split in ("train", "valid", "test"):
+            _make_split_tree(root / split)
+        dm = FinetuneDataModule(_settings(root, checkpoint_dir=tmp_path / "ckpts"))
+        dm.setup()
+
+        assert dm.val_dataset is not None
+        assert dm.test_dataset is not None
+        assert len(dm.val_dataset) == len(dm.test_dataset) == len(GRADES) * 2
+
+    def test_setup_missing_val_and_valid_raises(self, tmp_path: Path) -> None:
+        root = tmp_path / "dataset"
+        for split in ("train", "test"):
+            _make_split_tree(root / split)
+        dm = FinetuneDataModule(_settings(root, checkpoint_dir=tmp_path / "ckpts"))
+
+        with pytest.raises(FileNotFoundError, match="val"):
+            dm.setup()
 
 
 class _FakeWriter:
