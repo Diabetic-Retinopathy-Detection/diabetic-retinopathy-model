@@ -72,7 +72,7 @@ packages = ["src/dr_model"]
 include = ["src/dr_model/py.typed"]
 
 [tool.mypy]
-files = ["src"]
+files = ["src", "tests"]
 disallow_untyped_defs = true
 disallow_any_unimported = true
 no_implicit_optional = true
