@@ -121,10 +121,11 @@ def main(argv: list[str] | None = None) -> int:
     if updates:
         config = config.model_copy(update=updates)
 
-    ctx = detect_distributed_context(args.device)
-    device = ctx.device if ctx.enabled else resolve_device(args.device)
     if config.deterministic_algorithms:
         setup_cublas_workspace()
+
+    ctx = detect_distributed_context(args.device)
+    device = ctx.device if ctx.enabled else resolve_device(args.device)
     if config.seed >= 0:
         setup_determinism(config.seed, deterministic_algorithms=config.deterministic_algorithms)
     if is_rank_zero(ctx):
