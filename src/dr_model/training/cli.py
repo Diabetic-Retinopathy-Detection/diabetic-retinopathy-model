@@ -5,9 +5,6 @@ import os
 import sys
 from pathlib import Path
 
-# Must be set before importing torch (CuBLAS reads it at init).
-os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
-
 import mlflow
 import torch
 import torch.nn as nn
@@ -28,7 +25,7 @@ from dr_model.training.distributed import (
 )
 from dr_model.training.finetune_loop import run
 from dr_model.training.pretrain_loop import pretrain
-from dr_model.utils import resolve_device, setup_determinism
+from dr_model.utils import resolve_device, setup_cublas_workspace, setup_determinism
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -126,6 +123,8 @@ def main(argv: list[str] | None = None) -> int:
 
     ctx = detect_distributed_context(args.device)
     device = ctx.device if ctx.enabled else resolve_device(args.device)
+    if config.deterministic_algorithms:
+        setup_cublas_workspace()
     if config.seed >= 0:
         setup_determinism(config.seed, deterministic_algorithms=config.deterministic_algorithms)
     if is_rank_zero(ctx):

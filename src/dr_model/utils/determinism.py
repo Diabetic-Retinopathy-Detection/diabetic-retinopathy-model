@@ -14,8 +14,9 @@ _SEED: int | None = None
 def setup_cublas_workspace() -> None:
     """Set ``CUBLAS_WORKSPACE_CONFIG`` for deterministic cuBLAS on CUDA >= 10.2.
 
-    Must be called before any CUDA work starts — place at module top in CLI
-    files before importing ``torch``.
+    Only meaningful when deterministic algorithms are enabled; called
+    automatically by :func:`setup_determinism`.  CuBLAS reads the variable
+    lazily at the first kernel launch, so no need to set it at import time.
     """
     os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 
@@ -28,9 +29,10 @@ def setup_determinism(seed: int, deterministic_algorithms: bool = False) -> int:
     seed : int
         Random seed for torch, Python, and numpy RNGs.
     deterministic_algorithms : bool
-        If True, also enable ``torch.use_deterministic_algorithms`` and
-        ``cudnn.deterministic`` (slower but fully reproducible).
-        Default False — seeds RNGs only (cheap, good enough for most runs).
+        If True, also enable ``torch.use_deterministic_algorithms``,
+        ``cudnn.deterministic``, and set ``CUBLAS_WORKSPACE_CONFIG``
+        (slower but fully reproducible).  Default False — seeds RNGs only
+        (cheap, good enough for most runs).
 
     Returns
     -------
@@ -45,6 +47,7 @@ def setup_determinism(seed: int, deterministic_algorithms: bool = False) -> int:
     torch.cuda.manual_seed_all(seed)
 
     if deterministic_algorithms:
+        setup_cublas_workspace()
         torch.use_deterministic_algorithms(True)
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
