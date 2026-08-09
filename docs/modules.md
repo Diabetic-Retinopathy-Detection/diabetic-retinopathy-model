@@ -89,6 +89,38 @@ initialised, the dataset is sharded with a `DistributedSampler` (exposed as
 
 ::: dr_model.data
 
+## Fine-tuning Data
+
+Fine-tuning datasets (DDR, Messidor-2, APTOS 2019) are prepared by
+`utils/crop.py` into an ImageFolder tree — one subdirectory per DR grade — with
+no labels file to parse and no splitting logic to implement:
+
+```
+<finetune_dataset_root>/
+├── train/  0/ 1/ 2/ 3/ 4/
+├── val/    0/ 1/ 2/ 3/ 4/
+└── test/   0/ 1/ 2/ 3/ 4/
+```
+
+`GradingDataset` wraps a single split directory in `ImageFolder`: subdirectory
+name → integer grade label, `getitem` returns `(float32 [3, H, W], int)`.
+It is dataset-agnostic — it never knows whether it is loading DDR, Messidor-2,
+or APTOS 2019.
+
+`FinetuneDataModule` builds the `train`/`val`/`test` `GradingDataset`s from
+`config.finetune_dataset_root`. The train transform matches SSiT's
+`eval.py` `data_transforms` (flips, mild `RandomResizedCrop`, colour jitter,
+rotation, affine); the eval transform uses SSiT's plain
+`Resize((384, 384)) → ToTensor → Normalize`. Both run at
+`config.finetune_input_size` (384), distinct from the pretraining resolution
+`input_size` (224). Normalisation mean/std come from
+`config.finetune_mean`/`config.finetune_std` — select the right values from
+`DATASET_STATS` (keys `ddr`, `aptos2019`, `messidor2`, plus `eyepacs`).
+
+::: dr_model.data.dataset
+
+::: dr_model.data.finetune_datamodule
+
 ## Inference
 
 ::: dr_model.inference

@@ -1,4 +1,6 @@
-# TODO: fill in for fine-tuning phase
+# Fine-tuning config for supervised DR grading (SSiT fine-tuning, DRC-48).
+# The dataset must already be prepared by utils/crop.py as an ImageFolder
+# tree: <finetune_dataset_root>/{train,val,test}/{0,1,2,3,4}/.
 
 # Architecture: standard ViT-B/16 per Dosovitskiy et al. (2020)
 patch_size: 16
@@ -12,11 +14,19 @@ attn_drop_rate: 0.0
 pretrained_weights: null
 num_classes: 5
 
-data_dir: null
+data_dir: ../data
 image_size: [224, 224]
 num_workers: 4
+pin_memory: true
 train_split: 0.8
 val_split: 0.1
+
+# Fine-tuning data (APTOS 2019 by default; swap root and mean/std for
+# Messidor-2 or DDR). Stats from SSiT funcs.py.
+finetune_dataset_root: data/aptos2019
+finetune_input_size: 384
+finetune_mean: [0.46100369095802307, 0.246780663728714, 0.07989078760147095]
+finetune_std: [0.24873991310596466, 0.13842609524726868, 0.08025242388248444]
 
 batch_size: 32
 learning_rate: 1e-05

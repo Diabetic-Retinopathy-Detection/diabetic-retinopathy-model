@@ -100,8 +100,15 @@ class Settings(BaseSettings):
     data_index_path: Path | None = None
     dataset_ratio: float = 1.0
     num_workers: int = 4
+    pin_memory: bool = True
     train_split: float = 0.8
     val_split: float = 0.1
+
+    # ── fine-tuning ────────────────────────────────────────────────
+    finetune_dataset_root: Path | None = None
+    finetune_input_size: int = 384
+    finetune_mean: list[float] = [0.46100369095802307, 0.246780663728714, 0.07989078760147095]
+    finetune_std: list[float] = [0.24873991310596466, 0.13842609524726868, 0.08025242388248444]
 
     # ── experiment tracking ─────────────────────────────────────
     mlflow: bool = True
