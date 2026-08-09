@@ -2,7 +2,8 @@
 
 The fine-tuning datasets (APTOS 2019, Messidor-2, DDR) are prepared by
 ``utils/crop.py`` into a ``<dataset_root>/{train,val,test}/{0..4}/`` layout
-where each subdirectory name is the DR grade.  ``GradingDataset`` wraps a
+(where the validation split may be named ``valid`` instead of ``val``) and
+each subdirectory name is the DR grade.  ``GradingDataset`` wraps a
 *single* split directory in :class:`torchvision.datasets.ImageFolder`;
 labels come from the subdirectory names.  Nothing here parses CSVs, resolves
 original labels, or defines splits — that information is consumed during

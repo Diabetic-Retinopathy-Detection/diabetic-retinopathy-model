@@ -1,6 +1,7 @@
 # Fine-tuning config for supervised DR grading (SSiT fine-tuning, DRC-49).
 # The dataset must already be prepared by utils/crop.py as an ImageFolder
-# tree: <finetune_dataset_root>/{train,val,test}/{0,1,2,3,4}/.
+# tree: <finetune_dataset_root>/{train,val,test}/{0,1,2,3,4}/.  The val split
+# may be staged as `valid` (as DRC-25's DDR preparation does).
 
 # Architecture: standard ViT-B/16 per Dosovitskiy et al. (2020)
 patch_size: 16
