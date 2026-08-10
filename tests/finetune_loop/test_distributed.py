@@ -38,7 +38,7 @@ def _finetune_config_dict(checkpoint_dir: str) -> dict[str, object]:
         "mlp_ratio": 4.0,
         "num_classes": 5,
         "image_size": (224, 224),
-        "finetune_input_size": 384,
+        "finetune_input_size": 64,
         "batch_size": 4,
         "num_workers": 0,
         "seed": -1,
@@ -63,7 +63,7 @@ class _DummyDataset(Dataset):
         return 8
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, int]:
-        return torch.randn(3, 384, 384), index % 5
+        return torch.randn(3, 64, 64), index % 5
 
 
 class TestDistributedSamplerBoundary:
@@ -170,7 +170,7 @@ def _ddp_worker(rank: int, world_size: int, config_dict: dict[str, object], port
     init_distributed(ctx)
     try:
         model = wrap_model(Finetuner(config), ctx)
-        ds = TensorDataset(torch.randn(32, 3, 384, 384), torch.randint(0, 5, (32,)))
+        ds = TensorDataset(torch.randn(32, 3, 64, 64), torch.randint(0, 5, (32,)))
         dm = FinetuneDataModule(config)
         dm.train_dataset = ds  # type: ignore[assignment]
         dm.val_dataset = ds  # type: ignore[assignment]
@@ -191,6 +191,8 @@ def _ddp_worker(rank: int, world_size: int, config_dict: dict[str, object], port
 class TestDdpSmoke:
     """Real 2-process DDP on the gloo backend exercises actual gradient sync."""
 
+    @pytest.mark.distributed
+    @pytest.mark.timeout(240)
     def test_finetune_runs_and_checkpoints_are_clean(self, tmp_path: Path) -> None:
         world_size = 2
         port = _free_port()

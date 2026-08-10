@@ -50,6 +50,8 @@ Documentation = "https://diabetic-retinopathy-detection.github.io/diabetic-retin
 dev = [
     "pytest>=9.0.2",
     "pytest-asyncio>=0.25.0",
+    "pytest-cov>=7.0.0",
+    "pytest-xdist>=3.6.1",
     "httpx>=0.28.0",
     "pre-commit>=4.5.1",
     "deptry>=0.25.1",
@@ -61,6 +63,7 @@ dev = [
     "mkdocstrings[python]>=1.0.3",
     "types-psutil>=0.0.0",
     "types-PyYAML>=0.0.0",
+    "pytest-timeout>=2.4.0",
 ]
 
 [build-system]
@@ -94,6 +97,11 @@ module = ["sklearn.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
+addopts = ["-ra", "--strict-markers", "--tb=short", "-q"]
+markers = [
+    "distributed: tests that spawn real torch.distributed process groups via torch.multiprocessing",
+    "timeout: per-test wall-clock limit that turns a hang into a fast, visible failure",
+]
 testpaths = ["tests"]
 
 [tool.deptry.per_rule_ignores]

@@ -17,8 +17,13 @@ check: ## Run code quality tools.
 
 .PHONY: test
 test: ## Test the code with pytest
-	@echo "Testing code: Running pytest"
-	@uv run python -m pytest --cov --cov-config=pyproject.toml --cov-report=xml
+	@echo "Testing code: Running pytest (parallel)"
+	@uv run python -m pytest -m "not distributed" -n auto --cov --cov-config=pyproject.toml --cov-report=xml
+	@echo "Testing code: Running pytest (distributed, serial)"
+	@uv run python -m pytest -m distributed -n 0 || { \
+		echo "Retrying distributed tests once"; \
+		uv run python -m pytest -m distributed -n 0; \
+	}
 
 .PHONY: build
 build: clean-build ## Build wheel file

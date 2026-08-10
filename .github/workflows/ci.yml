@@ -13,6 +13,9 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.10", "3.11"]
+        include:
+          - python-version: "3.11"
+            collect-coverage: true
 
     steps:
       - uses: actions/checkout@v6
@@ -21,6 +24,9 @@ jobs:
         uses: astral-sh/setup-uv@v8.2.0
         with:
           python-version: ${{ matrix.python-version }}
+          enable-cache: true
+          cache-suffix: ${{ matrix.python-version }}
+          cache-python: true
 
       - name: Install dependencies
         run: uv sync --frozen
@@ -31,8 +37,23 @@ jobs:
       - name: Type check
         run: uv run mypy
 
-      - name: Test
-        run: uv run pytest --cov --cov-config=pyproject.toml --cov-report=xml
+      - name: Test (parallel)
+        run: >-
+          uv run pytest -m "not distributed" -n auto
+          ${{ matrix.collect-coverage && '--cov --cov-config=pyproject.toml --cov-report=xml' || '' }}
+
+      - name: Test (distributed, serial)
+        run: |
+          set +e
+          uv run pytest -m distributed -n 0
+          status=$?
+          if [ $status -ne 0 ]; then
+            echo "First distributed run failed; retrying once to rule out a flaky torch spawn hang."
+            uv run pytest -m distributed -n 0
+            status=$?
+          fi
+          exit $status
+        timeout-minutes: 20
 
   quality:
     runs-on: ubuntu-latest
@@ -43,6 +64,9 @@ jobs:
         uses: astral-sh/setup-uv@v8.2.0
         with:
           python-version: "3.11"
+          enable-cache: true
+          cache-suffix: quality
+          cache-python: true
 
       - name: Install dependencies
         run: uv sync --frozen

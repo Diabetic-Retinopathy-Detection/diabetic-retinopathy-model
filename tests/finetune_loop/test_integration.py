@@ -6,6 +6,7 @@ import math
 import os
 import socket
 
+import pytest
 import torch
 import torch.nn as nn
 from sklearn.metrics import cohen_kappa_score
@@ -77,6 +78,8 @@ def _eval_worker(rank: int, world_size: int, port: int, seed: int) -> None:
 
 
 class TestEvaluateReduction:
+    @pytest.mark.distributed
+    @pytest.mark.timeout(240)
     def test_reduces_across_ranks(self) -> None:
         world_size = 2
 

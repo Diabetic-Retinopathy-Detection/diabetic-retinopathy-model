@@ -294,6 +294,8 @@ def _ddp_worker(rank: int, world_size: int, config_dict: dict[str, object], port
 class TestDdpSmoke:
     """Real 2-process DDP on the gloo backend exercises actual gradient sync."""
 
+    @pytest.mark.distributed
+    @pytest.mark.timeout(240)
     def test_pretrain_runs_and_checkpoints_are_clean(self, tmp_path: Path) -> None:
         world_size = 2
         port = _free_port()
