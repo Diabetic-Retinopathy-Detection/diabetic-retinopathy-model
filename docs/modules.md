@@ -213,12 +213,25 @@ Full training state (model, optimizer, scaler) saved under `<checkpoint_dir>/fin
 ### Running fine-tuning
 
 ```bash
-python scripts/finetune.py --config configs/finetune_default.yaml
+uv run dr-train --phase finetune --config configs/finetune_default.yaml
 ```
 
 Loads `Settings` from the YAML config, seeds the trunk from `finetune_checkpoint` when set,
 and runs the loop. Key flags: `--device`, `--seed`, `--finetune-epochs`, `--batch-size`,
 `--finetune-checkpoint`, `--num-workers`.
+
+### Distributed fine-tuning
+
+`--phase finetune` supports the same single-node DDP as pretraining:
+
+```bash
+uv run torchrun --nnodes=1 --nproc-per-node=4 -m dr_model.training.cli \
+    --phase finetune --device cuda --config configs/finetune_default.yaml
+```
+
+Each rank trains on a sharded train split (`DistributedSampler`), validation loss and
+kappa are reduced across ranks, and checkpoints are written by rank 0 with no `module.`
+key prefix.
 
 ::: dr_model.model.finetune
 

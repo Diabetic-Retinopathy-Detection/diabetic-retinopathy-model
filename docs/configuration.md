@@ -41,8 +41,8 @@ Both entry points accept the same flags:
 # Registered entry point (pyproject.toml)
 uv run dr-train --phase pretrain --device mps --seed 42
 
-# Direct script
-uv run scripts/pretrain.py --device mps --seed 42
+# Direct module invocation
+uv run python -m dr_model.training.cli --phase pretrain --device mps --seed 42
 ```
 
 | Flag | Description |
@@ -51,8 +51,13 @@ uv run scripts/pretrain.py --device mps --seed 42
 | `--device` | `auto`, `cpu`, `cuda`, `mps` (default: `auto`) |
 | `--seed` | Random seed, `-1` to disable (overrides config) |
 | `--config` | Path to YAML config file |
-| `--resume` | Path to `checkpoint.pt` to resume from |
+| `--resume` | Path to `checkpoint.pt` to resume from (pretrain) |
 | `--data-index-path` | Path to pretraining pickle index (overrides config) |
+| `--data-dir` | Root data directory containing `cropped/` and `saliency/` (overrides config) |
+| `--finetune-epochs` | Number of fine-tuning epochs (overrides config) |
+| `--batch-size` | Batch size (overrides config) |
+| `--finetune-checkpoint` | Pretrain checkpoint seeding the fine-tuning trunk (overrides config) |
+| `--num-workers` | DataLoader worker processes (overrides config) |
 
 ### Examples
 

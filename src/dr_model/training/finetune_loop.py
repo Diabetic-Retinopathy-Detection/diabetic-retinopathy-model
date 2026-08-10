@@ -3,7 +3,9 @@
 Mirrors SSiT's ``eval.py`` fine-tuning procedure: AdamW with a cosine LR
 schedule (linear warmup, then cosine decay to ``finetune_min_lr``), plain
 cross-entropy loss, and quadratic-weighted Cohen's kappa reported on the
-validation split each epoch.  Single-process only.
+validation split each epoch.  Supports single-node DDP via ``torchrun`` —
+each rank trains on a sharded train split, validation metrics are reduced
+across ranks, and checkpoints are written by rank 0.
 """
 
 from __future__ import annotations
@@ -16,10 +18,11 @@ import torch
 import torch.nn as nn
 from sklearn.metrics import cohen_kappa_score
 from torch.optim import AdamW
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, DistributedSampler
 
 from dr_model.config import Settings
 from dr_model.data.finetune_datamodule import FinetuneDataModule
+from dr_model.training.distributed import rank_zero_only, unwrap_model
 from dr_model.utils.timer import Timer
 
 if TYPE_CHECKING:
@@ -51,8 +54,14 @@ def _evaluate(
     val_dataloader: DataLoader,
     criterion: nn.Module,
     device: torch.device,
+    world_size: int = 1,
 ) -> tuple[float, float]:
-    """Mean validation loss and quadratic-weighted Cohen's kappa."""
+    """Mean validation loss and quadratic-weighted Cohen's kappa.
+
+    Loss sums and step counts are all-reduced across ranks so the mean is
+    computed over the whole validation split; predictions and labels are
+    gathered so kappa is also computed on the full split (not per-rank).
+    """
     model.eval()
     val_loss_sum = 0.0
     steps = 0
@@ -66,10 +75,27 @@ def _evaluate(
         all_preds.extend(logits.argmax(dim=1).tolist())
         steps += 1
     model.train()
+
+    if world_size > 1:
+        loss_t = torch.tensor([val_loss_sum], device=device)
+        cnt_t = torch.tensor([float(steps)], device=device)
+        torch.distributed.all_reduce(loss_t, op=torch.distributed.ReduceOp.SUM)
+        torch.distributed.all_reduce(cnt_t, op=torch.distributed.ReduceOp.SUM)
+        val_loss_sum = loss_t.item()
+        steps = int(cnt_t.item())
+
+        labels_by_rank: list[list[int]] = [[] for _ in range(world_size)]
+        preds_by_rank: list[list[int]] = [[] for _ in range(world_size)]
+        torch.distributed.all_gather_object(labels_by_rank, all_labels)
+        torch.distributed.all_gather_object(preds_by_rank, all_preds)
+        all_labels = [label for labels in labels_by_rank for label in labels]
+        all_preds = [pred for preds in preds_by_rank for pred in preds]
+
     kappa = float(cohen_kappa_score(all_labels, all_preds, weights="quadratic"))
     return val_loss_sum / max(steps, 1), kappa
 
 
+@rank_zero_only
 def _log_epoch(
     epoch: int,
     config: Settings,
@@ -79,8 +105,9 @@ def _log_epoch(
     lr: float,
     t_epoch: float,
     writer: SummaryWriter | None,
+    rank: int = 0,
 ) -> None:
-    """Print and log epoch metrics to TensorBoard and MLflow."""
+    """Print and log epoch metrics to TensorBoard and MLflow (rank 0 only)."""
     print(
         f"Epoch {epoch + 1}/{config.finetune_epochs} — "
         f"train_loss={train_loss:.4f}  val_loss={val_loss:.4f}  "
@@ -115,10 +142,14 @@ def _save_checkpoint(
     optimizer: AdamW,
     scaler: torch.cuda.amp.GradScaler | None,
 ) -> None:
-    """Persist full training state for potential resume."""
+    """Persist full training state for potential resume.
+
+    The state dict is taken from the *unwrapped* model so keys never carry
+    a ``module.`` prefix under DDP.
+    """
     state: dict[str, object] = {
         "epoch": epoch,
-        "state_dict": model.state_dict(),
+        "state_dict": unwrap_model(model).state_dict(),
         "optimizer": optimizer.state_dict(),
     }
     if scaler is not None:
@@ -133,6 +164,8 @@ def run(
     *,
     device: torch.device,
     writer: SummaryWriter | None = None,
+    rank: int = 0,
+    world_size: int = 1,
 ) -> None:
     """Run the full supervised fine-tuning loop.
 
@@ -145,11 +178,17 @@ def run(
         caller.  All parameters are trained (full fine-tuning, matching SSiT).
     datamodule
         Initialised (``setup()`` already called) fine-tuning data module.
+        Under DDP its train loader shards the dataset per rank and exposes
+        the sampler as ``datamodule.sampler``.
     device
         Target device.  Caller is responsible for moving the model.
     writer
         Optional TensorBoard writer.  ``None`` disables logging.  Owned by
         the caller — this loop never closes it.
+    rank
+        Global rank of this process.
+    world_size
+        Total number of processes.
     """
     use_amp = config.precision == "16-mixed" and device.type == "cuda"
     scaler: torch.cuda.amp.GradScaler | None = None
@@ -165,6 +204,7 @@ def run(
 
     train_dataloader = datamodule.train_dataloader()
     val_dataloader = datamodule.val_dataloader()
+    sampler: DistributedSampler | None = datamodule.sampler
 
     save_dir = config.checkpoint_dir / "finetune"
     save_dir.mkdir(parents=True, exist_ok=True)
@@ -173,6 +213,9 @@ def run(
     timer = Timer()
     best_kappa = -1.0
     for epoch in range(config.finetune_epochs):
+        if sampler is not None:
+            sampler.set_epoch(epoch)
+
         epoch_loss_sum = 0.0
         epoch_steps = 0
         for images, labels in train_dataloader:
@@ -204,20 +247,21 @@ def run(
             epoch_steps += 1
 
         avg_train_loss = epoch_loss_sum / max(epoch_steps, 1)
-        avg_val_loss, kappa = _evaluate(model, val_dataloader, criterion, device)
+        avg_val_loss, kappa = _evaluate(model, val_dataloader, criterion, device, world_size)
 
-        _log_epoch(epoch, config, avg_train_loss, avg_val_loss, kappa, lr, timer.lap(), writer)
+        _log_epoch(epoch, config, avg_train_loss, avg_val_loss, kappa, lr, timer.lap(), writer, rank=rank)
 
-        if kappa > best_kappa:
+        if rank == 0 and kappa > best_kappa:
             best_kappa = kappa
             _save_checkpoint(save_dir / "best_validation_weights.pt", epoch, model, optimizer, scaler)
-        if (epoch + 1) % config.save_every == 0 and (epoch + 1) < config.finetune_epochs:
+        if rank == 0 and (epoch + 1) % config.save_every == 0 and (epoch + 1) < config.finetune_epochs:
             _save_checkpoint(save_dir / f"epoch_{epoch + 1}.pt", epoch, model, optimizer, scaler)
 
-    _save_checkpoint(
-        save_dir / f"epoch_{config.finetune_epochs}.pt",
-        config.finetune_epochs - 1,
-        model,
-        optimizer,
-        scaler,
-    )
+    if rank == 0:
+        _save_checkpoint(
+            save_dir / f"epoch_{config.finetune_epochs}.pt",
+            config.finetune_epochs - 1,
+            model,
+            optimizer,
+            scaler,
+        )

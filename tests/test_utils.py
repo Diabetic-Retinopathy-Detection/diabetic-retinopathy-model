@@ -62,6 +62,17 @@ class TestSetupDeterminism:
         result = setup_determinism(seed=42)
         assert result == 42
 
+    def test_deterministic_sets_cublas_workspace(self) -> None:
+        os.environ.pop("CUBLAS_WORKSPACE_CONFIG", None)
+        setup_determinism(seed=1, deterministic_algorithms=True)
+        assert os.environ["CUBLAS_WORKSPACE_CONFIG"] == ":4096:8"
+        torch.use_deterministic_algorithms(False)
+
+    def test_default_does_not_set_cublas_workspace(self) -> None:
+        os.environ.pop("CUBLAS_WORKSPACE_CONFIG", None)
+        setup_determinism(seed=1)
+        assert "CUBLAS_WORKSPACE_CONFIG" not in os.environ
+
 
 class TestWorkerInitFn:
     def test_reseeds_with_seed_plus_id(self) -> None:

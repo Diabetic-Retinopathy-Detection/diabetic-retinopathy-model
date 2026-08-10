@@ -17,6 +17,7 @@ from dr_model.config import Settings
 from dr_model.data.finetune_datamodule import FinetuneDataModule
 from dr_model.model.backbone import ViTBackbone
 from dr_model.model.finetune import Finetuner
+from dr_model.training.cli import main as cli_main
 from dr_model.training.finetune_loop import adjust_lr, run
 
 if TYPE_CHECKING:
@@ -265,16 +266,6 @@ class TestRun:
 
 class TestScript:
     def test_main_smoke(self, tmp_path: Path) -> None:
-        old = os.environ.get("DR_CONFIG_FILE")
-        os.environ["DR_CONFIG_FILE"] = "configs/pretrain_default.yaml"
-        try:
-            from scripts.finetune import main
-        finally:
-            if old is None:
-                os.environ.pop("DR_CONFIG_FILE", None)
-            else:
-                os.environ["DR_CONFIG_FILE"] = old
-
         root = _make_dataset_root(tmp_path)
         cfg_path = tmp_path / "finetune_smoke.yaml"
         cfg = {
@@ -304,7 +295,9 @@ class TestScript:
 
         old = os.environ.pop("DR_CONFIG_FILE", None)
         try:
-            rc = main(argv=["--config", str(cfg_path), "--device", "cpu", "--num-workers", "0"])
+            rc = cli_main(
+                argv=["--phase", "finetune", "--config", str(cfg_path), "--device", "cpu", "--num-workers", "0"]
+            )
         finally:
             if old is None:
                 os.environ.pop("DR_CONFIG_FILE", None)

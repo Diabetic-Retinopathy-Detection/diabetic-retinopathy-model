@@ -199,3 +199,37 @@ class TestConfigArtifact:
         dumped = logged[0]
         assert isinstance(dumped, dict)
         assert dumped.get("batch_size") == 128
+
+
+class TestConfigArtifactFinetune:
+    """Full YAML config is logged as an MLflow artifact (finetune phase)."""
+
+    def test_log_dict_called_with_config(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        logged: list[dict] = []
+
+        monkeypatch.setattr("mlflow.set_tracking_uri", lambda _: None)
+        monkeypatch.setattr("mlflow.set_experiment", lambda _: None)
+        monkeypatch.setattr("mlflow.start_run", lambda **_: None)
+        monkeypatch.setattr("mlflow.log_param", lambda k, v: None)
+        monkeypatch.setattr("mlflow.set_tag", lambda k, v: None)
+        monkeypatch.setattr("mlflow.active_run", lambda: None)
+        monkeypatch.setattr("mlflow.log_dict", lambda d, f: logged.append(d))
+
+        import torch
+
+        config = Settings(mlflow=True, tensorboard=False)
+        from dr_model.training.cli import _run_finetune
+
+        monkeypatch.setattr("dr_model.training.cli.Settings", lambda: config)
+        data_mock = MagicMock(setup=MagicMock(), sampler=None)
+        monkeypatch.setattr("dr_model.training.cli.FinetuneDataModule", lambda _: data_mock)
+        model_mock = MagicMock(to=lambda _: MagicMock())
+        monkeypatch.setattr("dr_model.training.cli.Finetuner", lambda *a, **k: model_mock)
+        monkeypatch.setattr("dr_model.training.cli.run", lambda *a, **kw: None)
+
+        _run_finetune(config, device=torch.device("cpu"))
+
+        assert len(logged) == 1
+        dumped = logged[0]
+        assert isinstance(dumped, dict)
+        assert dumped.get("batch_size") == 128

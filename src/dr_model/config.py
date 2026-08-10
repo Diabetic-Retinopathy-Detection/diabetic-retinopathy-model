@@ -2,12 +2,13 @@
 
 ``Settings`` is the single source of truth for every hyper-parameter in the
 system — architecture, training, data, and serving.  It is a Pydantic
-``BaseSettings`` subclass, so values resolve from (in ascending priority):
+``BaseSettings`` subclass, so values resolve from (in descending priority):
 
-1. Class defaults
-2. YAML file (``configs/pretrain_default.yaml`` unless ``DR_CONFIG_FILE`` is set)
+1. Constructor arguments
+2. Environment variables
 3. ``.env`` file
-4. Environment variables
+4. YAML file (``configs/pretrain_default.yaml`` unless ``DR_CONFIG_FILE`` is set)
+5. Class defaults
 
 ``model_name`` is a ``@computed_field`` derived from the architecture
 parameters (``patch_size``, ``embed_dim``, ``depth``, ``num_heads``,

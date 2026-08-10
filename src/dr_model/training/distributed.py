@@ -12,6 +12,7 @@ import functools
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import TypeVar, cast
 
 import torch
@@ -85,11 +86,15 @@ def init_distributed(ctx: DistributedContext) -> None:
     """Initialise the process group — NCCL on CUDA, gloo otherwise.
 
     No-op for a non-distributed context.
+
+    A bounded ``timeout`` keeps a hung or crashed peer from blocking
+    every other rank for the default 30 minutes — it surfaces as an error
+    after roughly two minutes instead.
     """
     if not ctx.enabled:
         return
     backend = "nccl" if ctx.device.type == "cuda" else "gloo"
-    torch.distributed.init_process_group(backend=backend)
+    torch.distributed.init_process_group(backend=backend, timeout=timedelta(seconds=120))
 
 
 def cleanup_distributed() -> None:
@@ -97,8 +102,16 @@ def cleanup_distributed() -> None:
 
     Idempotent — safe to call in every teardown path, including single-
     process runs where no group was ever created.
+
+    In multi-process runs every rank joins a ``barrier()`` before the
+    store is torn down.  Destroying too early — while a peer is still
+    finishing collectives (e.g. gloo's object transport) — can leave the
+    rank-0 TCPStore waiting for a connection that never drains, which
+    hangs teardown (pytorch/pytorch#75097).
     """
     if torch.distributed.is_initialized():
+        if torch.distributed.get_world_size() > 1:
+            torch.distributed.barrier()
         torch.distributed.destroy_process_group()
 
 

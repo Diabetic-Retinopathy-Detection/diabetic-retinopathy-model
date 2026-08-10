@@ -99,7 +99,6 @@ dmypy.json
 .pyre/
 .pytype/
 cython_debug/
-poetry.toml
 .ruff_cache/
 pyrightconfig.json
 
@@ -117,9 +116,7 @@ pyrightconfig.json
 
 ### Project-specific ###
 checkpoints/**
-!checkpoints/.gitkeep
 logs/**
-!logs/.gitkeep
 *.pt
 *.pth
 *.ckpt

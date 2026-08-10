@@ -29,8 +29,6 @@ dependencies = [
     "pyyaml>=6.0",
     "pillow>=11.0.0,<12.0.0",
     "numpy>=1.26.0,<2.0.0",
-    "opencv-contrib-python-headless>=4.8.0",
-    "tqdm>=4.66.0",
     "tensorboard>=2.21.0",
     "mlflow>=2.0.0",
     "matplotlib>=3.8.0",
@@ -52,17 +50,20 @@ Documentation = "https://diabetic-retinopathy-detection.github.io/diabetic-retin
 dev = [
     "pytest>=9.0.2",
     "pytest-asyncio>=0.25.0",
+    "pytest-cov>=7.0.0",
+    "pytest-xdist>=3.6.1",
     "httpx>=0.28.0",
     "pre-commit>=4.5.1",
     "deptry>=0.25.1",
     "mypy>=1.19.1",
     "pytest-cov>=7.0.0",
-    "ruff>=0.15.7",
+    "ruff==0.15.7",
     "mkdocs>=1.6.1",
     "mkdocs-material>=9.7.6",
     "mkdocstrings[python]>=1.0.3",
     "types-psutil>=0.0.0",
     "types-PyYAML>=0.0.0",
+    "pytest-timeout>=2.4.0",
 ]
 
 [build-system]
@@ -74,7 +75,7 @@ packages = ["src/dr_model"]
 include = ["src/dr_model/py.typed"]
 
 [tool.mypy]
-files = ["src"]
+files = ["src", "tests"]
 disallow_untyped_defs = true
 disallow_any_unimported = true
 no_implicit_optional = true
@@ -96,7 +97,15 @@ module = ["sklearn.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
+addopts = ["-ra", "--strict-markers", "--tb=short", "-q"]
+markers = [
+    "distributed: tests that spawn real torch.distributed process groups via torch.multiprocessing",
+    "timeout: per-test wall-clock limit that turns a hang into a fast, visible failure",
+]
 testpaths = ["tests"]
+
+[tool.deptry.per_rule_ignores]
+DEP002 = ["pyyaml"]
 
 [tool.ruff]
 target-version = "py310"
