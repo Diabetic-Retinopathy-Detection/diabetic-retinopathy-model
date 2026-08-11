@@ -1,13 +1,20 @@
 #!/bin/bash
-# Submit a pretraining Slurm job, optionally overriding the GPU count.
+# Submit a pretraining or fine-tuning Slurm job, optionally overriding the
+# GPU count.
 #
 # Usage:
-#   ./scripts/submit_train.sh [full|smoke] [N_GPUS]
+#   ./scripts/submit_train.sh [full|smoke|finetune|finetune-smoke] [N_GPUS]
 #
 # Examples:
-#   ./scripts/submit_train.sh full 4    # 4x GPU full pretraining (gpu partition)
-#   ./scripts/submit_train.sh full      # 1x GPU full pretraining
-#   ./scripts/submit_train.sh smoke 2   # 2x GPU smoke test (proves DDP sync)
+#   ./scripts/submit_train.sh full 4            # 4x GPU full pretraining
+#   ./scripts/submit_train.sh full              # 1x GPU full pretraining
+#   ./scripts/submit_train.sh smoke 2           # 2x GPU pretrain smoke (DDP sync)
+#   ./scripts/submit_train.sh finetune 4        # 4x GPU DDR fine-tuning
+#   ./scripts/submit_train.sh finetune-smoke 2  # 2x GPU finetune smoke
+#
+# Fine-tuning overrides (propagated to the job via --export=ALL):
+#   FINETUNE_CONFIG=configs/finetune_aptos.yaml ./scripts/submit_train.sh finetune 4
+#   FINETUNE_CHECKPOINT=checkpoints/foo/checkpoint.pt ./scripts/submit_train.sh finetune 4
 #
 # The command-line --gres overrides the #SBATCH --gres default in the
 # script, and N_GPUS is exported into the job so torchrun launches one
@@ -24,8 +31,14 @@ case "${MODE}" in
     smoke)
         SCRIPT="scripts/pretrain_hpc_smoke.sh"
         ;;
+    finetune)
+        SCRIPT="scripts/finetune_hpc.sh"
+        ;;
+    finetune-smoke)
+        SCRIPT="scripts/finetune_hpc_smoke.sh"
+        ;;
     *)
-        echo "Unknown mode '${MODE}' (expected 'full' or 'smoke')" >&2
+        echo "Unknown mode '${MODE}' (expected 'full', 'smoke', 'finetune', or 'finetune-smoke')" >&2
         exit 1
         ;;
 esac
