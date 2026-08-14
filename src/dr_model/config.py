@@ -128,6 +128,7 @@ class Settings(BaseSettings):
     port: int = 8000
     workers: int = 1
     max_batch_size: int = 16
+    serving_checkpoint: str = "checkpoints/finetune/best_validation_weights.pt"
 
     # ── computed ───────────────────────────────────────────────────
 

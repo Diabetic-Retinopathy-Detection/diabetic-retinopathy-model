@@ -45,3 +45,4 @@ finetune_checkpoint: checkpoints/full-pretraining/checkpoint.pt
 host: 0.0.0.0
 port: 8000
 workers: 1
+serving_checkpoint: checkpoints/finetune/best_validation_weights.pt
