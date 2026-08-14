@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from io import BytesIO
 from typing import Annotated
 
@@ -10,15 +12,18 @@ from PIL import Image, UnidentifiedImageError
 from dr_model.config import Settings
 from dr_model.inference import load_model, predict
 
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    load_model()
+    yield
+
+
 app = FastAPI(
     title="Diabetic Retinopathy Model API",
     version="0.1.0",
+    lifespan=lifespan,
 )
-
-
-@app.on_event("startup")
-async def startup_event() -> None:
-    load_model()
 
 
 @app.get("/health")
