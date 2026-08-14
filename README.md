@@ -212,6 +212,34 @@ Notes:
 uv run python -m pytest tests/ -v
 ```
 
+## Serving
+
+The FastAPI service loads the fine-tuned checkpoint configured by
+`serving_checkpoint` and exposes health and single-image prediction endpoints.
+Use a fine-tuning configuration so the serving checkpoint and dataset-specific
+normalization statistics are loaded together:
+
+```bash
+DR_CONFIG_FILE=configs/finetune_default.yaml uv run dr-serve
+```
+
+Check the service health:
+
+```bash
+curl http://localhost:8000/health
+```
+
+Submit a JPEG or PNG fundus image as multipart form data:
+
+```bash
+curl -X POST http://localhost:8000/predict \
+    -F "file=@fundus.png"
+```
+
+The response contains the predicted DR grade and a probability for each of the
+five classes. Set `serving_checkpoint` in the selected configuration when a
+different fine-tuned checkpoint should be served.
+
 ## Type checking and linting
 
 ```bash
