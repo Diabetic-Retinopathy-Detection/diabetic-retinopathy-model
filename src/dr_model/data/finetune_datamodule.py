@@ -1,10 +1,11 @@
 """Supervised fine-tuning data module over pre-split ImageFolder trees.
 
-Loads the ``train/``, ``val/``, ``test/`` splits that ``utils/crop.py``
-materialised on disk (one subdirectory per DR grade, ``0``-``4``) and
-exposes one :class:`~torch.utils.data.DataLoader` per split.  The validation
+Loads the ``train/``, ``val/``, ``test/`` splits prepared by the external
+``preprocess-retina-datasets`` project. The data are materialised on disk
+(one subdirectory per DR grade, ``0``-``4``) and expose one
+:class:`~torch.utils.data.DataLoader` per split. The validation
 split is resolved on disk as ``val/`` or ``valid/`` (DRC-25's DDR preparation
-stages ``valid/``).  There is no splitting or label-resolution logic here —
+stages ``valid/``).  There is no preprocessing, splitting, or label-resolution logic here --
 the filesystem already encodes the labels and the splits.
 
 The train pipeline reproduces SSiT's ``eval.py`` ``data_transforms``

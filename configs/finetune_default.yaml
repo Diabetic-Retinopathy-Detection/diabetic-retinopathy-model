@@ -1,7 +1,7 @@
 # Fine-tuning config for supervised DR grading (SSiT fine-tuning, DRC-49).
-# The dataset must already be prepared by utils/crop.py as an ImageFolder
-# tree: <finetune_dataset_root>/{train,val,test}/{0,1,2,3,4}/.  The val split
-# may be staged as `valid` (as DRC-25's DDR preparation does).
+# The dataset must already be prepared by the external preprocessing pipeline
+# as an ImageFolder tree: <finetune_dataset_root>/{train,val,test}/{0,1,2,3,4}/.
+# The val split may be staged as `valid` (as the DDR preparation does).
 #
 # Only keys the fine-tuning path actually reads are listed here; the
 # pretraining-only keys (image_size, learning_rate, max_epochs, ...) live in

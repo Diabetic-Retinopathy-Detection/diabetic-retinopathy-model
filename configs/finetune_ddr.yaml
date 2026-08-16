@@ -1,8 +1,9 @@
 # Fine-tuning config for supervised DR grading on DDR (DRC-49).
 # The dataset must already be staged as an ImageFolder tree
 # <finetune_dataset_root>/{train,valid,test}/{0,1,2,3,4}/ (see the
-# prepare-ddr tool in the preprocess-retina-datasets repo). Images are
-# transferred with rsync --copy-links (the local ImageFolder is symlinked).
+# prepare-ddr tool in the preprocess-retina-datasets repo). Use
+# prepare-ddr --copy when the prepared tree will be transferred to another
+# machine; this keeps the ImageFolder independent of source symlinks.
 # Root is relative to the container workdir (/app), so this resolves to
 # /app/data/ddr via the scratch bind mount.
 #

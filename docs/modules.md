@@ -96,9 +96,11 @@ initialised, the dataset is sharded with a `DistributedSampler` (exposed as
 
 ## Fine-tuning Data
 
-Fine-tuning datasets (DDR, Messidor-2, APTOS 2019) are prepared by
-`utils/crop.py` into an ImageFolder tree — one subdirectory per DR grade — with
-no labels file to parse and no splitting logic to implement:
+Fine-tuning datasets are prepared outside this repository by the
+`preprocess-retina-datasets` project into an ImageFolder tree — one
+subdirectory per DR grade — with no source labels file to parse and no
+splitting logic to implement here. For DDR, use its `crop-images` and
+`prepare-ddr` commands:
 
 ```
 <finetune_dataset_root>/
@@ -109,8 +111,7 @@ no labels file to parse and no splitting logic to implement:
 
 `GradingDataset` wraps a single split directory in `ImageFolder`: subdirectory
 name → integer grade label, `getitem` returns `(float32 [3, H, W], int)`.
-It is dataset-agnostic — it never knows whether it is loading DDR, Messidor-2,
-or APTOS 2019.
+It is dataset-agnostic — it never knows which prepared dataset it is loading.
 
 `FinetuneDataModule` builds the `train`/`val`/`test` `GradingDataset`s from
 `config.finetune_dataset_root`. The train transform matches SSiT's
