@@ -263,6 +263,45 @@ class TestRun:
 
         assert (config.checkpoint_dir / "finetune" / "epoch_2.pt").exists()
 
+    def test_resume_for_additional_epochs(self, tmp_path: Path) -> None:
+        root = _make_dataset_root(tmp_path)
+        checkpoint_dir = tmp_path / "ckpts"
+
+        first_config = _settings(root, batch_size=2, checkpoint_dir=checkpoint_dir, finetune_epochs=1)
+        first_dm = FinetuneDataModule(first_config)
+        first_dm.setup()
+        run(
+            config=first_config,
+            model=Finetuner(first_config),
+            datamodule=first_dm,
+            device=torch.device("cpu"),
+        )
+
+        resume_path = checkpoint_dir / "finetune" / "epoch_1.pt"
+        assert resume_path.exists()
+        legacy_state = torch.load(resume_path, map_location="cpu")
+        legacy_state.pop("total_epochs", None)
+        legacy_state.pop("kappa", None)
+        torch.save(legacy_state, resume_path)
+
+        resumed_config = _settings(root, batch_size=2, checkpoint_dir=checkpoint_dir, finetune_epochs=25)
+        resumed_dm = FinetuneDataModule(resumed_config)
+        resumed_dm.setup()
+        run(
+            config=resumed_config,
+            model=Finetuner(resumed_config),
+            datamodule=resumed_dm,
+            device=torch.device("cpu"),
+            resume_path=resume_path,
+            extra_epochs=1,
+        )
+
+        final_path = checkpoint_dir / "finetune" / "epoch_2.pt"
+        assert final_path.exists()
+        state = torch.load(final_path, map_location="cpu")
+        assert state["epoch"] == 1
+        assert state["total_epochs"] == 25
+
 
 class TestScript:
     def test_main_smoke(self, tmp_path: Path) -> None:

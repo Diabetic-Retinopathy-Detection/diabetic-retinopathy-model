@@ -106,6 +106,12 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="DataLoader worker processes (overrides config).",
     )
+    parser.add_argument(
+        "--finetune-extra-epochs",
+        type=int,
+        default=0,
+        help="Additional fine-tuning epochs when resuming from a checkpoint.",
+    )
     args = parser.parse_args(argv)
 
     if args.config is not None:
@@ -133,7 +139,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.phase == "pretrain":
         return _run_pretrain(config, device, args.resume, ctx)
-    return _run_finetune(config, device, ctx)
+    return _run_finetune(config, device, ctx, args.resume, args.finetune_extra_epochs)
 
 
 def _collect_updates(args: argparse.Namespace) -> dict[str, object]:
@@ -221,6 +227,8 @@ def _run_finetune(
     config: Settings,
     device: torch.device,
     ctx: DistributedContext | None = None,
+    resume_path: str | None = None,
+    extra_epochs: int = 0,
 ) -> int:
     if ctx is None:
         ctx = detect_distributed_context(str(device))
@@ -231,7 +239,8 @@ def _run_finetune(
     dm = FinetuneDataModule(config)
     dm.setup()
 
-    model: nn.Module = Finetuner(config, checkpoint_path=config.finetune_checkpoint).to(device)
+    checkpoint_path = None if resume_path is not None else config.finetune_checkpoint
+    model: nn.Module = Finetuner(config, checkpoint_path=checkpoint_path).to(device)
     model = wrap_model(model, ctx)
 
     writer = None
@@ -257,6 +266,8 @@ def _run_finetune(
             writer=writer,
             rank=ctx.rank,
             world_size=ctx.world_size,
+            resume_path=resume_path,
+            extra_epochs=extra_epochs,
         )
     finally:
         if writer is not None:

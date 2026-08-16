@@ -29,18 +29,22 @@ if TYPE_CHECKING:
     from torch.utils.tensorboard import SummaryWriter
 
 
-def adjust_lr(optimizer: torch.optim.Optimizer, config: Settings, step_ratio: float) -> float:
+def adjust_lr(
+    optimizer: torch.optim.Optimizer,
+    config: Settings,
+    step_ratio: float,
+    total_epochs: int | None = None,
+) -> float:
     """Linear warmup then cosine decay to ``finetune_min_lr``.
 
     Matches SSiT's ``adjust_learning_rate`` (``train.py``) when
     ``finetune_min_lr`` is zero.
     """
+    schedule_epochs = total_epochs if total_epochs is not None else config.finetune_epochs
     if step_ratio < config.finetune_warmup_epochs:
         lr = config.finetune_lr * step_ratio / config.finetune_warmup_epochs
     else:
-        progress = (step_ratio - config.finetune_warmup_epochs) / (
-            config.finetune_epochs - config.finetune_warmup_epochs
-        )
+        progress = (step_ratio - config.finetune_warmup_epochs) / (schedule_epochs - config.finetune_warmup_epochs)
         decay = 0.5 * (1.0 + math.cos(math.pi * progress))
         lr = config.finetune_min_lr + (config.finetune_lr - config.finetune_min_lr) * decay
     for pg in optimizer.param_groups:
@@ -141,6 +145,9 @@ def _save_checkpoint(
     model: nn.Module,
     optimizer: AdamW,
     scaler: torch.cuda.amp.GradScaler | None,
+    *,
+    total_epochs: int | None = None,
+    kappa: float | None = None,
 ) -> None:
     """Persist full training state for potential resume.
 
@@ -154,7 +161,32 @@ def _save_checkpoint(
     }
     if scaler is not None:
         state["scaler"] = scaler.state_dict()
+    if total_epochs is not None:
+        state["total_epochs"] = total_epochs
+    if kappa is not None:
+        state["kappa"] = kappa
     torch.save(state, path)
+
+
+def _restore_checkpoint(
+    path: str | Path | None,
+    model: nn.Module,
+    optimizer: AdamW,
+    scaler: torch.cuda.amp.GradScaler | None,
+    device: torch.device,
+    default_total_epochs: int,
+) -> tuple[int, int, float]:
+    if path is None:
+        return 0, default_total_epochs, -1.0
+    state = torch.load(path, map_location=device)
+    unwrap_model(model).load_state_dict(state["state_dict"])
+    optimizer.load_state_dict(state["optimizer"])
+    if scaler is not None and "scaler" in state:
+        scaler.load_state_dict(state["scaler"])
+    start_epoch = int(state["epoch"]) + 1
+    total_epochs = int(state.get("total_epochs", default_total_epochs))
+    best_kappa = float(state.get("kappa", -1.0))
+    return start_epoch, total_epochs, best_kappa
 
 
 def run(
@@ -166,6 +198,8 @@ def run(
     writer: SummaryWriter | None = None,
     rank: int = 0,
     world_size: int = 1,
+    resume_path: str | Path | None = None,
+    extra_epochs: int = 0,
 ) -> None:
     """Run the full supervised fine-tuning loop.
 
@@ -202,6 +236,13 @@ def run(
     )
     criterion = nn.CrossEntropyLoss()
 
+    start_epoch = 0
+    start_epoch, total_epochs, best_kappa = _restore_checkpoint(
+        resume_path, model, optimizer, scaler, device, config.finetune_epochs
+    )
+
+    stop_epoch = start_epoch + extra_epochs if resume_path is not None and extra_epochs else config.finetune_epochs
+
     train_dataloader = datamodule.train_dataloader()
     val_dataloader = datamodule.val_dataloader()
     sampler: DistributedSampler | None = datamodule.sampler
@@ -211,8 +252,7 @@ def run(
 
     model.train()
     timer = Timer()
-    best_kappa = -1.0
-    for epoch in range(config.finetune_epochs):
+    for epoch in range(start_epoch, stop_epoch):
         if sampler is not None:
             sampler.set_epoch(epoch)
 
@@ -220,7 +260,7 @@ def run(
         epoch_steps = 0
         for images, labels in train_dataloader:
             step_ratio = epoch + epoch_steps / len(train_dataloader)
-            lr = adjust_lr(optimizer, config, step_ratio)
+            lr = adjust_lr(optimizer, config, step_ratio, total_epochs=total_epochs)
 
             images = images.to(device)
             labels = labels.to(device)
@@ -253,15 +293,33 @@ def run(
 
         if rank == 0 and kappa > best_kappa:
             best_kappa = kappa
-            _save_checkpoint(save_dir / "best_validation_weights.pt", epoch, model, optimizer, scaler)
-        if rank == 0 and (epoch + 1) % config.save_every == 0 and (epoch + 1) < config.finetune_epochs:
-            _save_checkpoint(save_dir / f"epoch_{epoch + 1}.pt", epoch, model, optimizer, scaler)
+            _save_checkpoint(
+                save_dir / "best_validation_weights.pt",
+                epoch,
+                model,
+                optimizer,
+                scaler,
+                total_epochs=total_epochs,
+                kappa=kappa,
+            )
+        if rank == 0 and (epoch + 1) % config.save_every == 0 and (epoch + 1) < stop_epoch:
+            _save_checkpoint(
+                save_dir / f"epoch_{epoch + 1}.pt",
+                epoch,
+                model,
+                optimizer,
+                scaler,
+                total_epochs=total_epochs,
+                kappa=best_kappa,
+            )
 
     if rank == 0:
         _save_checkpoint(
-            save_dir / f"epoch_{config.finetune_epochs}.pt",
-            config.finetune_epochs - 1,
+            save_dir / f"epoch_{stop_epoch}.pt",
+            stop_epoch - 1,
             model,
             optimizer,
             scaler,
+            total_epochs=total_epochs,
+            kappa=best_kappa,
         )
