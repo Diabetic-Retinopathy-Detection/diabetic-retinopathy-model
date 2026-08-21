@@ -36,6 +36,25 @@ Settings(image_size=(224, 192)).image_size  # (224, 192)
 
 Override the YAML path via the `DR_CONFIG_FILE` environment variable.
 
+Fine-tuning configs may declare `_base_` with a path relative to the config
+file. The base is loaded first and the overlay overrides matching values:
+
+```yaml
+_base_: finetune_base.yaml
+finetune_dataset_root: data/ddr
+```
+
+Use the dataset-specific config explicitly:
+
+```bash
+uv run dr-train --phase finetune \
+    --config configs/finetune_ddr.yaml \
+    --device mps --seed 42
+```
+
+The shared fine-tuning defaults, including `finetune_loss: squared_emd`, live
+in `configs/finetune_base.yaml`.
+
 ## CLI usage
 
 Both entry points accept the same flags:

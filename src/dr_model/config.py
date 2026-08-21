@@ -20,7 +20,9 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any
 
+import yaml
 from pydantic import computed_field, field_validator
 from pydantic_settings import (
     BaseSettings,
@@ -46,11 +48,12 @@ class Settings(BaseSettings):
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
         yaml_file = os.getenv("DR_CONFIG_FILE", "configs/pretrain_default.yaml")
+        yaml_values = _load_yaml_config(Path(yaml_file))
         return (
             init_settings,
             env_settings,
             dotenv_settings,
-            YamlConfigSettingsSource(settings_cls, yaml_file=yaml_file),
+            _YamlConfigSettingsSource(settings_cls, yaml_values),
         )
 
     # ── paths ──────────────────────────────────────────────────────
@@ -149,3 +152,46 @@ class Settings(BaseSettings):
     @property
     def model_name(self) -> str:
         return f"vit_p{self.patch_size}_e{self.embed_dim}_d{self.depth}_h{self.num_heads}_c{self.num_classes}"
+
+
+class _YamlConfigSettingsSource(YamlConfigSettingsSource):
+    """Settings source backed by a resolved base-plus-overlay YAML mapping."""
+
+    def __init__(self, settings_cls: type[BaseSettings], values: dict[str, Any]) -> None:
+        super().__init__(settings_cls, yaml_file=None)
+        self._values = values
+
+    def __call__(self) -> dict[str, Any]:
+        return self._values
+
+
+def _load_yaml_config(path: Path, seen: tuple[Path, ...] = ()) -> dict[str, Any]:
+    """Load a YAML config and recursively merge its optional ``_base_`` file."""
+    path = path.resolve()
+    if path in seen:
+        chain = " -> ".join(str(item) for item in (*seen, path))
+        raise ValueError from ValueError(chain)
+    with path.open(encoding="utf-8") as stream:
+        values = yaml.safe_load(stream) or {}
+    if not isinstance(values, dict):
+        raise TypeError
+
+    base_name = values.pop("_base_", None)
+    if base_name is None:
+        return values
+    if not isinstance(base_name, str):
+        raise TypeError
+
+    base = _load_yaml_config(path.parent / base_name, (*seen, path))
+    return _merge_yaml_values(base, values)
+
+
+def _merge_yaml_values(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+    """Merge overlay values into base values, recursively for mappings."""
+    merged = dict(base)
+    for key, value in overlay.items():
+        if isinstance(merged.get(key), dict) and isinstance(value, dict):
+            merged[key] = _merge_yaml_values(merged[key], value)
+        else:
+            merged[key] = value
+    return merged

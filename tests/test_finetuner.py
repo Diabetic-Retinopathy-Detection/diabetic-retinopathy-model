@@ -13,7 +13,7 @@ import torch.nn as nn
 import yaml
 from PIL import Image
 
-from dr_model.config import Settings
+from dr_model.config import Settings, _load_yaml_config
 from dr_model.data.finetune_datamodule import FinetuneDataModule
 from dr_model.model.backbone import ViTBackbone
 from dr_model.model.finetune import Finetuner
@@ -361,6 +361,16 @@ class TestRun:
 
 
 class TestScript:
+    def test_yaml_overlay_overrides_base(self, tmp_path: Path) -> None:
+        base = tmp_path / "base.yaml"
+        overlay = tmp_path / "overlay.yaml"
+        base.write_text("finetune_loss: squared_emd\nnum_classes: 5\n")
+        overlay.write_text("_base_: base.yaml\nfinetune_loss: cross_entropy\n")
+
+        values = _load_yaml_config(overlay)
+
+        assert values == {"finetune_loss": "cross_entropy", "num_classes": 5}
+
     def test_main_smoke(self, tmp_path: Path) -> None:
         root = _make_dataset_root(tmp_path)
         cfg_path = tmp_path / "finetune_smoke.yaml"
