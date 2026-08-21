@@ -9,14 +9,18 @@ src/dr_model/
 ├── config.py                 # Pydantic Settings — all hyper-parameters in one place
 ├── model/
 │   ├── backbone.py           # ViT encoder + classification head
+│   ├── finetune.py           # Supervised fine-tuning model
 │   └── pretrain.py           # Pretrainer — saliency-guided MoCo v3 (SSiT)
 ├── data/
-│   ├── pair_dataset.py       # Paired image/saliency dataset + transforms
-│   └── pretrain_datamodule.py# PretrainDataModule — pickle index + DistributedSampler
+│   ├── dataset.py             # ImageFolder grading dataset
+│   ├── pair_dataset.py        # Paired image/saliency dataset + transforms
+│   ├── pretrain_datamodule.py # Pickle index + DistributedSampler
+│   └── finetune_datamodule.py # Train/validation/test ImageFolder loaders
 ├── training/
 │   ├── cli.py                # Training entry-point (dr-train)
 │   ├── distributed.py        # DDP runtime: torchrun detection, rank gating, wrap/unwrap
 │   ├── pretrain_loop.py      # Pretraining loop (schedules, checkpoints, metrics)
+│   ├── finetune_loop.py      # Supervised fine-tuning loop
 │   └── report.py             # TensorBoard → PDF training report
 ├── logging/                  # MLflow + TensorBoard loggers
 ├── inference/                # predict() — single-image inference pipeline
@@ -102,7 +106,12 @@ config.model_name  # "vit_p16_e768_d12_h12_c5"
 
 Format: `vit_p{patch_size}_e{embed_dim}_d{depth}_h{num_heads}_c{num_classes}`
 
-This name is used for checkpoint filenames, logging, and serving metadata. Non-encoded parameters (`mlp_ratio`, `drop_rate`, etc.) are stored in the checkpoint file itself.
+This name is used for pretraining checkpoint directory names, logging, and
+serving metadata. It does not encode every configuration value, and the
+checkpoint does not persist a complete `Settings` object. Full training
+checkpoints contain model and optimizer state, epoch information, and (when
+applicable) scaler state; use the original YAML or environment settings to
+reconstruct the run configuration.
 
 ### image_size normalisation
 
@@ -115,10 +124,11 @@ Settings(image_size=(224, 192)).image_size  # (224, 192)
 
 ### Config priority
 
-1. Environment variables
-2. `.env` file
-3. YAML file (default: `configs/pretrain_default.yaml`)
-4. Class defaults
+1. Constructor arguments
+2. Environment variables
+3. `.env` file
+4. YAML file (default: `configs/pretrain_default.yaml`)
+5. Class defaults
 
 Override the YAML path via the `DR_CONFIG_FILE` environment variable.
 
@@ -131,20 +141,29 @@ DiabeticRetinopathy/
 ├── data/               # shared, gitignored
 │   ├── cropped/        # JPEG fundus crops
 │   ├── saliency/       # .npy saliency maps
-│   └── dataset.pkl     # image-saliency pair index (relative paths)
+│   └── data_index/     # image-saliency pair index (relative paths)
 ├── preprocess-retina-datasets/
 └── diabetic-retinopathy-model/   # this repo
 ```
 
 Set `data_dir` in `configs/pretrain_default.yaml` or as an environment variable (`DR_DATA_DIR`) to point at the data directory on your machine.
 
+The image and saliency paths in the index are relative to their respective
+configured roots. Matching relative subdirectories and filename stems are
+required. Pretraining transforms use `input_size` (224 by default), while the
+backbone positional-embedding grid is sized from `image_size`; keep them
+compatible with `patch_size`. The forward path does not dynamically resize
+positional embeddings. Fine-tuning separately uses `finetune_input_size`
+(384 by default) and interpolates square positional grids when loading a
+checkpoint.
+
 ## Reports
 
 Export TensorBoard training data to a PDF report:
 
 ```bash
-uv run dr-report --logdir logs/vit_p16_e768_d12_h12_c5/
-uv run dr-report --logdir logs/vit_p16_e768_d12_h12_c5/ --output my_report.pdf
+uv run dr-report --logdir logs/pretrain_vit_p16_e768_d12_h12_c5/
+uv run dr-report --logdir logs/pretrain_vit_p16_e768_d12_h12_c5/ --output my_report.pdf
 ```
 
 ## Training
@@ -215,7 +234,10 @@ uv run python -m pytest tests/ -v
 ## Serving
 
 The FastAPI service loads the fine-tuned checkpoint configured by
-`serving_checkpoint` and exposes health and single-image prediction endpoints.
+`serving_checkpoint` during application startup. Startup fails if that
+checkpoint cannot be loaded. It exposes health and single-image prediction
+endpoints; the current service returns classification probabilities only, not
+saliency explanations.
 Use a fine-tuning configuration so the serving checkpoint and dataset-specific
 normalization statistics are loaded together:
 
@@ -236,9 +258,23 @@ curl -X POST http://localhost:8000/predict \
     -F "file=@fundus.png"
 ```
 
-The response contains the predicted DR grade and a probability for each of the
-five classes. Set `serving_checkpoint` in the selected configuration when a
-different fine-tuned checkpoint should be served.
+The service resizes input images to `finetune_input_size` (384 by default) and
+uses the selected configuration's dataset-specific normalization. The response
+contains probabilities for `No DR`, `Mild`, `Moderate`, `Severe`, and
+`Proliferative DR`. Set `serving_checkpoint` in the selected configuration
+when a different fine-tuned checkpoint should be served.
+
+## Installation
+
+The project requires Python `>=3.10,<3.13`, PyTorch `>=2.2,<2.3`, and the
+matching torchvision release. Install the environment with:
+
+```bash
+uv sync
+```
+
+CPU, Apple MPS, and CUDA are supported by the runtime; CUDA training also
+depends on a compatible NVIDIA driver and PyTorch installation.
 
 ## Type checking and linting
 

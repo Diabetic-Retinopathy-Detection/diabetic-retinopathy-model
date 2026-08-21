@@ -24,6 +24,10 @@ When `pmap` is provided, applies saliency-guided patch masking: only the top-k p
 `config.image_size` for sizing the positional-embedding grid. `interpolate_pos_embed`
 bicubically resamples the patch grid of a pretrained `pos_embed` to a new token count while
 keeping the class token fixed — this lets a checkpoint trained at 224 be fine-tuned at 384.
+The normal forward path does not dynamically interpolate positional embeddings, so input
+dimensions must produce the configured patch grid and be divisible by `patch_size`. Current
+interpolation assumes square old and new patch grids; non-square `image_size` values are not a
+portable checkpoint-conversion path.
 
 ::: dr_model.model.backbone
 
@@ -40,7 +44,9 @@ Saliency-supervised self-distillation pretrainer (SSiT). Two simultaneous object
 - **Momentum encoder**: `ViTBackbone` updated via EMA. Same architecture, `requires_grad=False`.
 - **Predictor**: 2-layer MLP on top of the base encoder's projection (BYOL-style asymmetry).
 - **Saliency segmentor**: `Conv2d(embed_dim, patch_size^2, 1)` + `PixelShuffle(patch_size)` applied to patch tokens from the base encoder.
-- **Saliency pool**: `MaxPool2d(patch_size, patch_size)` downsamples saliency maps to patch resolution for momentum encoder masking.
+- **Saliency pool**: `pool_mode: max` uses `MaxPool2d(patch_size, patch_size)`;
+  `pool_mode: avg` uses average pooling; any other value disables pooling and
+  saliency masking.
 
 ### Forward pass
 
@@ -75,14 +81,16 @@ DiabeticRetinopathy/
 ├── data/                    # shared, gitignored
 │   ├── cropped/             # JPEG fundus crops
 │   ├── saliency/            # .npy saliency maps
-│   └── dataset.pkl          # portable index (relative paths)
+│   └── data_index/           # portable index (relative paths)
 ├── preprocess-retina-datasets/   # writes into data/
 └── diabetic-retinopathy-model/   # reads from data/
 ```
 
 `PairDataset` loads image-saliency pairs from the pickle index produced by
-`preprocess-retina-datasets`. Paths in the pickle are stored **relative** to a common
-root directory, making the index portable across machines.
+`preprocess-retina-datasets`. Each image path in the pickle is relative to the
+image root and each saliency path is relative to the saliency root, making the
+index portable across machines. Matching relative subdirectories and filename
+stems are required.
 
 `TransformWithMask` applies asymmetric student/teacher augmentation with paired spatial transforms. Every spatial transform (crop, rotation, flip) is applied to the image and mask with the same sampled parameters. Colour-only transforms are applied to the image only.
 
@@ -105,7 +113,7 @@ splitting logic to implement here. For DDR, use its `crop-images` and
 ```
 <finetune_dataset_root>/
 ├── train/  0/ 1/ 2/ 3/ 4/
-├── val/    0/ 1/ 2/ 3/ 4/
+├── val/    0/ 1/ 2/ 3/ 4/  # val/ or valid/
 └── test/   0/ 1/ 2/ 3/ 4/
 ```
 
@@ -218,6 +226,10 @@ Full training state (model, optimizer, scaler) saved under `<checkpoint_dir>/fin
 - `epoch_{N}.pt` — every `save_every` epochs (excluding the final).
 - `epoch_{finetune_epochs}.pt` — always saved after the last epoch.
 
+The fine-tuning loop evaluates the validation split during training when
+validation is enabled, but does not evaluate the loaded test split. Test-set
+evaluation requires a separate follow-up workflow.
+
 ### Running fine-tuning
 
 ```bash
@@ -282,7 +294,8 @@ uv run torchrun --nnodes=1 --nproc-per-node=4 -m dr_model.training.cli \
 - **Distributed**: `rank`/`world_size`/`sampler` drive DDP-aware behaviour — per-epoch losses are all-reduced (sums + counts, so global means stay correct under uneven shards), the `DistributedSampler` is reshuffled via `set_epoch(epoch)`, and checkpoint/encoder saves are gated on `rank == 0`.
 - **Checkpointing**: interval saves at `save_every` epochs + final epoch. Saves both full training state (`checkpoint.pt`) and encoder-only weights (`epoch_{N}_encoder.pt`) from the *unwrapped* model, so keys never carry a `module.` prefix.
 - **TensorBoard**: logs `loss/contrastive`, `loss/saliency`, `loss/total`, `lr`, `momentum_m` per epoch (rank 0 only).
-- **MLflow**: logs the same 5 metrics per epoch, plus all Settings fields as params (when `config.mlflow == True`).
+- **MLflow**: logs the phase-specific metrics above, plus scalar Settings
+  fields as params when `config.mlflow == True`.
 
 The caller resolves the device, moves the model, and owns the writer's lifetime — the loop never closes it.
 
@@ -293,8 +306,8 @@ The caller resolves the device, moves the model, and owns the writer's lifetime 
 Export TensorBoard scalars to a PDF report:
 
 ```bash
-uv run dr-report --logdir logs/vit_p16_e768_d12_h12_c5/
-uv run dr-report --logdir logs/vit_p16_e768_d12_h12_c5/ --output report.pdf
+uv run dr-report --logdir logs/pretrain_vit_p16_e768_d12_h12_c5/
+uv run dr-report --logdir logs/pretrain_vit_p16_e768_d12_h12_c5/ --output report.pdf
 ```
 
 Generates a multi-page PDF with loss curves (contrastive, saliency, total), learning rate schedule, momentum schedule, and a summary page with final/best metrics.
@@ -314,7 +327,8 @@ Dual logging to MLflow (run comparison) and TensorBoard (live curves). Both reco
 Device resolution and determinism helpers for reproducible training.
 
 - `resolve_device(device_str)` — `"auto"` prefers CUDA, then MPS, then CPU. Other strings pass through.
-- `setup_determinism(seed)` — sets PyTorch/CUDA/cuDNN seeds and enables deterministic algorithms. Call before any CUDA work.
+- `setup_determinism(seed)` — seeds PyTorch/CUDA/cuDNN and, when requested by
+  configuration, enables deterministic algorithms. Call before any CUDA work.
 - `setup_cublas_workspace()` — sets `CUBLAS_WORKSPACE_CONFIG` for deterministic cuBLAS. Called automatically by `setup_determinism`.
 
 ::: dr_model.utils

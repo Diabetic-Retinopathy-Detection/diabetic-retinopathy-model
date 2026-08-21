@@ -1,9 +1,10 @@
 # Distributed Training (Distributed Data Parallel, DDP)
 
 Single-node, multi-GPU pretraining via `torch.distributed` and `torchrun`.
-The design keeps **all distributed runtime concerns in one module**
-(`dr_model.training.distributed`) — training logic never inspects environment
-variables or calls `torch.distributed` directly.
+The design centralises process-group setup, device selection, model wrapping,
+and cleanup in `dr_model.training.distributed`. The training loops still call
+`torch.distributed` directly for collective metric reduction, because every
+rank must participate in those operations.
 
 ## Launch model
 
