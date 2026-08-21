@@ -24,7 +24,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import torch
-from torch.utils.data import DataLoader, DistributedSampler
+from torch.utils.data import ConcatDataset, DataLoader, Dataset, DistributedSampler
 from torchvision import transforms
 
 from dr_model.config import Settings
@@ -89,8 +89,8 @@ class FinetuneDataModule:
 
     def __init__(self, config: Settings) -> None:
         self.config = config
-        self.train_dataset: GradingDataset | None = None
-        self.val_dataset: GradingDataset | None = None
+        self.train_dataset: Dataset | None = None
+        self.val_dataset: Dataset | None = None
         self.test_dataset: GradingDataset | None = None
         self.sampler: DistributedSampler | None = None
 
@@ -101,10 +101,18 @@ class FinetuneDataModule:
             msg = "config.finetune_dataset_root must be set for fine-tuning"
             raise ValueError(msg)
 
-        self.train_dataset = GradingDataset(
-            _resolve_split_dir(root, "train"), transform=build_train_transform(self.config)
-        )
-        self.val_dataset = GradingDataset(_resolve_split_dir(root, "val"), transform=build_eval_transform(self.config))
+        train_transform = build_train_transform(self.config)
+        train_dataset = GradingDataset(_resolve_split_dir(root, "train"), transform=train_transform)
+        if self.config.train_on_train_and_valid:
+            valid_for_training = GradingDataset(_resolve_split_dir(root, "val"), transform=train_transform)
+            self.train_dataset = ConcatDataset([train_dataset, valid_for_training])
+        else:
+            self.train_dataset = train_dataset
+
+        if not self.config.skip_validation:
+            self.val_dataset = GradingDataset(
+                _resolve_split_dir(root, "val"), transform=build_eval_transform(self.config)
+            )
         self.test_dataset = GradingDataset(
             _resolve_split_dir(root, "test"), transform=build_eval_transform(self.config)
         )

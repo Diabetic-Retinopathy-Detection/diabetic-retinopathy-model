@@ -43,6 +43,8 @@ finetune_weight_decay: 1.0e-5
 finetune_warmup_epochs: 0
 finetune_epochs: 25
 finetune_checkpoint: checkpoints/full-pretraining/checkpoint.pt
+train_on_train_and_valid: false
+skip_validation: false
 mlflow_experiment_name: dr-finetune
 
 # Serving (shared Settings, read by dr-serve)

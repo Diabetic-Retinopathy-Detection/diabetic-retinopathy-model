@@ -40,6 +40,8 @@ finetune_weight_decay: 0.05
 finetune_warmup_epochs: 5
 finetune_epochs: 50
 finetune_checkpoint: checkpoints/full-pretraining/checkpoint.pt
+train_on_train_and_valid: false
+skip_validation: false
 
 # Serving (shared Settings, read by dr-serve)
 host: 0.0.0.0

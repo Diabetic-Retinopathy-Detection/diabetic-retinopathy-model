@@ -263,6 +263,31 @@ class TestRun:
 
         assert (config.checkpoint_dir / "finetune" / "epoch_2.pt").exists()
 
+    def test_train_on_train_and_valid_without_validation(self, tmp_path: Path) -> None:
+        root = _make_dataset_root(tmp_path)
+        config = _settings(root, batch_size=2, checkpoint_dir=tmp_path / "ckpts", finetune_epochs=1)
+        config = config.model_copy(update={"train_on_train_and_valid": True, "skip_validation": True})
+        dm = FinetuneDataModule(config)
+        dm.setup()
+        assert dm.train_dataset is not None
+        assert len(dm.train_dataset) == 20
+        assert dm.val_dataset is None
+
+        writer = _FakeWriter()
+        run(
+            config=config,
+            model=Finetuner(config),
+            datamodule=dm,
+            device=torch.device("cpu"),
+            writer=writer,  # type: ignore[arg-type]
+        )
+
+        tags = {tag for tag, _value, _step in writer.scalars}
+        assert {"loss/train", "lr"} <= tags
+        assert "loss/val" not in tags
+        assert not (config.checkpoint_dir / "finetune" / "best_validation_weights.pt").exists()
+        assert (config.checkpoint_dir / "finetune" / "epoch_1.pt").exists()
+
     def test_resume_for_additional_epochs(self, tmp_path: Path) -> None:
         root = _make_dataset_root(tmp_path)
         checkpoint_dir = tmp_path / "ckpts"

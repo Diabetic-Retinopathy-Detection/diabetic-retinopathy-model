@@ -123,6 +123,13 @@ rotation, affine); the eval transform uses SSiT's plain
 `config.finetune_mean`/`config.finetune_std` — select the right values from
 `DATASET_STATS` (keys `ddr`, `aptos2019`, `messidor2`, plus `eyepacs`).
 
+For a final fixed-epoch fit, `train_on_train_and_valid: true` creates a virtual
+concatenation of the prepared `train/` and `valid/` splits, without copying
+files. Set `skip_validation: true` after selecting the epoch count so the
+validation split is not evaluated during this final fit. The resulting final
+checkpoint is `epoch_N.pt`; no best-validation checkpoint is produced in this
+mode.
+
 ::: dr_model.data.dataset
 
 ::: dr_model.data.finetune_datamodule

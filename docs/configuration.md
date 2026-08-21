@@ -58,6 +58,8 @@ uv run python -m dr_model.training.cli --phase pretrain --device mps --seed 42
 | `--batch-size` | Batch size (overrides config) |
 | `--finetune-checkpoint` | Pretrain checkpoint seeding the fine-tuning trunk (overrides config) |
 | `--num-workers` | DataLoader worker processes (overrides config) |
+| `--train-on-train-and-valid` / `--no-train-on-train-and-valid` | Train on a virtual concatenation of the train and validation splits |
+| `--skip-validation` / `--no-skip-validation` | Skip validation during fine-tuning |
 
 ### Examples
 
@@ -70,6 +72,11 @@ uv run dr-train --phase pretrain --config configs/pretrain_custom.yaml --resume 
 
 # Deterministic run on MPS
 uv run dr-train --phase pretrain --device mps --seed 42
+
+# Final fixed-epoch fit on train + validation without validation metrics
+uv run dr-train --phase finetune --config configs/finetune_ddr.yaml \
+    --device cuda --finetune-epochs 7 \
+    --train-on-train-and-valid --skip-validation
 ```
 
 Override via YAML `data_index_path:` or environment variable `DR_DATA_INDEX_PATH`.

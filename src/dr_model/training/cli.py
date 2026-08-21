@@ -112,6 +112,18 @@ def main(argv: list[str] | None = None) -> int:
         default=0,
         help="Additional fine-tuning epochs when resuming from a checkpoint.",
     )
+    parser.add_argument(
+        "--train-on-train-and-valid",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Train on the virtual concatenation of train and validation splits.",
+    )
+    parser.add_argument(
+        "--skip-validation",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Skip validation during fine-tuning.",
+    )
     args = parser.parse_args(argv)
 
     if args.config is not None:
@@ -161,7 +173,24 @@ def _collect_updates(args: argparse.Namespace) -> dict[str, object]:
         updates["finetune_checkpoint"] = args.finetune_checkpoint
     if args.num_workers is not None:
         updates["num_workers"] = args.num_workers
+    _collect_optional_updates(
+        updates,
+        args,
+        ("train_on_train_and_valid", "train_on_train_and_valid"),
+        ("skip_validation", "skip_validation"),
+    )
     return updates
+
+
+def _collect_optional_updates(
+    updates: dict[str, object],
+    args: argparse.Namespace,
+    *fields: tuple[str, str],
+) -> None:
+    for arg_name, field_name in fields:
+        value = getattr(args, arg_name)
+        if value is not None:
+            updates[field_name] = value
 
 
 def _run_pretrain(

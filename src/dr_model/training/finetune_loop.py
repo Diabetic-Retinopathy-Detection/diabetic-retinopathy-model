@@ -104,39 +104,34 @@ def _log_epoch(
     epoch: int,
     config: Settings,
     train_loss: float,
-    val_loss: float,
-    kappa: float,
+    val_loss: float | None,
+    kappa: float | None,
     lr: float,
     t_epoch: float,
     writer: SummaryWriter | None,
     rank: int = 0,
 ) -> None:
     """Print and log epoch metrics to TensorBoard and MLflow (rank 0 only)."""
-    print(
-        f"Epoch {epoch + 1}/{config.finetune_epochs} — "
-        f"train_loss={train_loss:.4f}  val_loss={val_loss:.4f}  "
-        f"kappa={kappa:.4f}  lr={lr:.6f}"
-    )
+    message = f"Epoch {epoch + 1}/{config.finetune_epochs} — train_loss={train_loss:.4f}"
+    if val_loss is not None and kappa is not None:
+        message += f"  val_loss={val_loss:.4f}  kappa={kappa:.4f}"
+    print(f"{message}  lr={lr:.6f}")
 
     if writer is not None:
         writer.add_scalar("loss/train", train_loss, epoch)
-        writer.add_scalar("loss/val", val_loss, epoch)
-        writer.add_scalar("kappa/val", kappa, epoch)
+        if val_loss is not None and kappa is not None:
+            writer.add_scalar("loss/val", val_loss, epoch)
+            writer.add_scalar("kappa/val", kappa, epoch)
         writer.add_scalar("lr", lr, epoch)
         writer.add_scalar("time/epoch", t_epoch, epoch)
 
     if config.mlflow:
         import mlflow
 
-        mlflow.log_metrics(
-            {
-                "loss/train": train_loss,
-                "loss/val": val_loss,
-                "kappa/val": kappa,
-                "lr": lr,
-            },
-            step=epoch,
-        )
+        metrics = {"loss/train": train_loss, "lr": lr}
+        if val_loss is not None and kappa is not None:
+            metrics.update({"loss/val": val_loss, "kappa/val": kappa})
+        mlflow.log_metrics(metrics, step=epoch)
 
 
 def _save_checkpoint(
@@ -244,7 +239,7 @@ def run(
     stop_epoch = start_epoch + extra_epochs if resume_path is not None and extra_epochs else config.finetune_epochs
 
     train_dataloader = datamodule.train_dataloader()
-    val_dataloader = datamodule.val_dataloader()
+    val_dataloader = None if config.skip_validation else datamodule.val_dataloader()
     sampler: DistributedSampler | None = datamodule.sampler
 
     save_dir = config.checkpoint_dir / "finetune"
@@ -287,11 +282,15 @@ def run(
             epoch_steps += 1
 
         avg_train_loss = epoch_loss_sum / max(epoch_steps, 1)
-        avg_val_loss, kappa = _evaluate(model, val_dataloader, criterion, device, world_size)
+        if val_dataloader is None:
+            avg_val_loss = None
+            kappa = None
+        else:
+            avg_val_loss, kappa = _evaluate(model, val_dataloader, criterion, device, world_size)
 
         _log_epoch(epoch, config, avg_train_loss, avg_val_loss, kappa, lr, timer.lap(), writer, rank=rank)
 
-        if rank == 0 and kappa > best_kappa:
+        if rank == 0 and kappa is not None and kappa > best_kappa:
             best_kappa = kappa
             _save_checkpoint(
                 save_dir / "best_validation_weights.pt",
@@ -310,7 +309,7 @@ def run(
                 optimizer,
                 scaler,
                 total_epochs=total_epochs,
-                kappa=best_kappa,
+                kappa=best_kappa if not config.skip_validation else None,
             )
 
     if rank == 0:
@@ -321,5 +320,5 @@ def run(
             optimizer,
             scaler,
             total_epochs=total_epochs,
-            kappa=best_kappa,
+            kappa=best_kappa if not config.skip_validation else None,
         )

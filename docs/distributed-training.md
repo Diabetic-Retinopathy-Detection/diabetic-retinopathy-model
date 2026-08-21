@@ -1,4 +1,4 @@
-# Distributed Training (DDP)
+# Distributed Training (Distributed Data Parallel, DDP)
 
 Single-node, multi-GPU pretraining via `torch.distributed` and `torchrun`.
 The design keeps **all distributed runtime concerns in one module**
