@@ -74,6 +74,12 @@ def _source_encoder(config: Settings) -> ViTBackbone:
 
 
 class TestFinetuner:
+    def test_direct_settings_defaults_match_ddr(self) -> None:
+        config = Settings()
+
+        assert config.finetune_mean == [0.423737496137619, 0.2609460651874542, 0.128403902053833]
+        assert config.finetune_std == [0.29482534527778625, 0.20167365670204163, 0.13668020069599152]
+
     def test_forward_logits_shape(self) -> None:
         model = Finetuner(_settings(None))
 

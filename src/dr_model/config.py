@@ -111,8 +111,8 @@ class Settings(BaseSettings):
     # ── fine-tuning ────────────────────────────────────────────────
     finetune_dataset_root: Path | None = None
     finetune_input_size: int = 384
-    finetune_mean: list[float] = [0.46100369095802307, 0.246780663728714, 0.07989078760147095]
-    finetune_std: list[float] = [0.24873991310596466, 0.13842609524726868, 0.08025242388248444]
+    finetune_mean: list[float] = [0.423737496137619, 0.2609460651874542, 0.128403902053833]
+    finetune_std: list[float] = [0.29482534527778625, 0.20167365670204163, 0.13668020069599152]
     finetune_lr: float = 2e-5
     finetune_min_lr: float = 0.0
     finetune_weight_decay: float = 1e-5

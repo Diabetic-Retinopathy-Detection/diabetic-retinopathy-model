@@ -1,5 +1,5 @@
 # Shared supervised fine-tuning settings. Dataset-specific overlays should
-# declare `_base: finetune_base.yaml` and provide their data values.
+# declare `_base_: finetune_base.yaml` and provide their data values.
 
 # Architecture: standard ViT-B/16 per Dosovitskiy et al. (2020)
 patch_size: 16
