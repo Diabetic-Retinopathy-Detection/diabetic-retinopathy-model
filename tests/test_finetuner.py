@@ -18,7 +18,7 @@ from dr_model.data.finetune_datamodule import FinetuneDataModule
 from dr_model.model.backbone import ViTBackbone
 from dr_model.model.finetune import Finetuner
 from dr_model.training.cli import main as cli_main
-from dr_model.training.finetune_loop import adjust_lr, run
+from dr_model.training.finetune_loop import SquaredEMDLoss, adjust_lr, build_finetune_criterion, run
 
 if TYPE_CHECKING:
     pass
@@ -200,6 +200,38 @@ class TestAdjustLr:
         opt = self._opt(config)
 
         assert adjust_lr(opt, config, 5.0) == pytest.approx(config.finetune_lr)
+
+
+class TestFinetuneLoss:
+    def test_squared_emd_matches_cumulative_distribution_formula(self) -> None:
+        logits = torch.log(torch.tensor([[0.1, 0.2, 0.7]], dtype=torch.float32))
+        labels = torch.tensor([1])
+
+        loss = SquaredEMDLoss()(logits, labels)
+        expected = ((torch.tensor([0.1, 0.3, 1.0]) - torch.tensor([0.0, 1.0, 1.0])) ** 2).mean()
+
+        assert loss == pytest.approx(expected.item())
+
+    def test_squared_emd_has_finite_gradients(self) -> None:
+        logits = torch.randn(2, 5, requires_grad=True)
+
+        SquaredEMDLoss()(logits, torch.tensor([0, 4])).backward()
+
+        assert logits.grad is not None
+        assert torch.isfinite(logits.grad).all()
+
+    def test_default_and_cross_entropy_criteria(self) -> None:
+        config = _settings(None)
+
+        assert isinstance(build_finetune_criterion(config), SquaredEMDLoss)
+        assert isinstance(
+            build_finetune_criterion(config.model_copy(update={"finetune_loss": "cross_entropy"})),
+            nn.CrossEntropyLoss,
+        )
+
+    def test_unknown_criterion_raises(self) -> None:
+        with pytest.raises(ValueError, match="Unsupported finetune_loss"):
+            build_finetune_criterion(_settings(None).model_copy(update={"finetune_loss": "unknown"}))
 
 
 class TestFinetuneDataModule:

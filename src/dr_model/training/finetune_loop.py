@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from sklearn.metrics import cohen_kappa_score
 from torch.optim import AdamW
 from torch.utils.data import DataLoader, DistributedSampler
@@ -27,6 +28,27 @@ from dr_model.utils.timer import Timer
 
 if TYPE_CHECKING:
     from torch.utils.tensorboard import SummaryWriter
+
+
+class SquaredEMDLoss(nn.Module):
+    """Squared EMD loss for ordinal class labels and probability outputs."""
+
+    def forward(self, logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+        probabilities = torch.softmax(logits, dim=1)
+        targets = F.one_hot(labels, num_classes=logits.shape[1]).to(dtype=logits.dtype)
+        predicted_cdf = probabilities.cumsum(dim=1)
+        target_cdf = targets.cumsum(dim=1)
+        return (predicted_cdf - target_cdf).square().mean()
+
+
+def build_finetune_criterion(config: Settings) -> nn.Module:
+    """Build the configured supervised fine-tuning loss."""
+    if config.finetune_loss == "squared_emd":
+        return SquaredEMDLoss()
+    if config.finetune_loss == "cross_entropy":
+        return nn.CrossEntropyLoss()
+    msg = f"Unsupported finetune_loss: {config.finetune_loss!r}; expected 'squared_emd' or 'cross_entropy'"
+    raise ValueError(msg)
 
 
 def adjust_lr(
@@ -229,7 +251,7 @@ def run(
         lr=config.finetune_lr,
         weight_decay=config.finetune_weight_decay,
     )
-    criterion = nn.CrossEntropyLoss()
+    criterion = build_finetune_criterion(config)
 
     start_epoch = 0
     start_epoch, total_epochs, best_kappa = _restore_checkpoint(

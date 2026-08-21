@@ -116,6 +116,7 @@ class Settings(BaseSettings):
     finetune_warmup_epochs: int = 5
     finetune_epochs: int = 25
     finetune_checkpoint: str | None = None
+    finetune_loss: str = "squared_emd"
     train_on_train_and_valid: bool = False
     skip_validation: bool = False
 
