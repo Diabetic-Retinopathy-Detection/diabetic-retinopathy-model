@@ -341,7 +341,17 @@ class TestRun:
         run(config=config, model=model, datamodule=dm, device=torch.device("cpu"), writer=writer)  # type: ignore[arg-type]
 
         tags = {tag for tag, _value, _step in writer.scalars}
-        assert {"loss/train", "loss/val", "kappa/val", "lr"} <= tags
+        assert {
+            "loss/train",
+            "loss/val",
+            "kappa/val",
+            "accuracy/val",
+            "f1/macro/val",
+            "f1/weighted/val",
+            "recall/class_0/val",
+            "recall/class_4/val",
+            "lr",
+        } <= tags
         kappa = next(value for tag, value, _step in writer.scalars if tag == "kappa/val")
         assert math.isfinite(kappa)
 

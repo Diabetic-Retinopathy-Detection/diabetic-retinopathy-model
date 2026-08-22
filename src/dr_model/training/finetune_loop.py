@@ -11,6 +11,7 @@ across ranks, and checkpoints are written by rank 0.
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -152,8 +153,7 @@ def _log_epoch(
     epoch: int,
     config: Settings,
     train_loss: float,
-    val_loss: float | None,
-    kappa: float | None,
+    val_metrics: ClassificationMetrics | None,
     lr: float,
     t_epoch: float,
     writer: SummaryWriter | None,
@@ -161,15 +161,16 @@ def _log_epoch(
 ) -> None:
     """Print and log epoch metrics to TensorBoard and MLflow (rank 0 only)."""
     message = f"Epoch {epoch + 1}/{config.finetune_epochs} — train_loss={train_loss:.4f}"
-    if val_loss is not None and kappa is not None:
-        message += f"  val_loss={val_loss:.4f}  kappa={kappa:.4f}"
+    if val_metrics is not None:
+        message += f"  val_loss={val_metrics.loss:.4f}  kappa={val_metrics.kappa:.4f}"
     print(f"{message}  lr={lr:.6f}")
 
     if writer is not None:
         writer.add_scalar("loss/train", train_loss, epoch)
-        if val_loss is not None and kappa is not None:
-            writer.add_scalar("loss/val", val_loss, epoch)
-            writer.add_scalar("kappa/val", kappa, epoch)
+        if val_metrics is not None:
+            writer.add_scalar("loss/val", val_metrics.loss, epoch)
+            writer.add_scalar("kappa/val", val_metrics.kappa, epoch)
+            _log_metrics(writer.add_scalar, val_metrics, "val", epoch)
         writer.add_scalar("lr", lr, epoch)
         writer.add_scalar("time/epoch", t_epoch, epoch)
 
@@ -177,9 +178,42 @@ def _log_epoch(
         import mlflow
 
         metrics = {"loss/train": train_loss, "lr": lr}
-        if val_loss is not None and kappa is not None:
-            metrics.update({"loss/val": val_loss, "kappa/val": kappa})
+        if val_metrics is not None:
+            metrics.update(_metric_scalars(val_metrics, "val"))
         mlflow.log_metrics(metrics, step=epoch)
+
+
+def _metric_scalars(metrics: ClassificationMetrics, split: str) -> dict[str, float]:
+    """Flatten aggregate and per-class metrics into logging scalar names."""
+    values: dict[str, float] = {
+        f"loss/{split}": metrics.loss,
+        f"kappa/{split}": metrics.kappa,
+        f"accuracy/{split}": metrics.accuracy,
+        f"f1/macro/{split}": metrics.f1_macro,
+        f"f1/weighted/{split}": metrics.f1_weighted,
+    }
+    if metrics.auc_macro is not None:
+        values[f"auc/macro/{split}"] = metrics.auc_macro
+    if metrics.auc_weighted is not None:
+        values[f"auc/weighted/{split}"] = metrics.auc_weighted
+    for index, value in enumerate(metrics.f1_per_class):
+        values[f"f1/class_{index}/{split}"] = value
+    for index, auc_value in enumerate(metrics.auc_per_class):
+        if auc_value is not None:
+            values[f"auc/class_{index}/{split}"] = auc_value
+    for index, value in enumerate(metrics.recall_per_class):
+        values[f"recall/class_{index}/{split}"] = value
+    return values
+
+
+def _log_metrics(
+    add_scalar: Callable[[str, float, int], None], metrics: ClassificationMetrics, split: str, epoch: int
+) -> None:
+    """Log metric scalars through a TensorBoard-compatible callback."""
+    for tag, value in _metric_scalars(metrics, split).items():
+        if tag.startswith("loss/") or tag.startswith("kappa/"):
+            continue
+        add_scalar(tag, value, epoch)
 
 
 def _save_checkpoint(
@@ -331,14 +365,21 @@ def run(
 
         avg_train_loss = epoch_loss_sum / max(epoch_steps, 1)
         if val_dataloader is None:
-            avg_val_loss = None
             kappa = None
         else:
             val_metrics = _evaluate(model, val_dataloader, criterion, device, world_size)
-            avg_val_loss = val_metrics.loss
             kappa = val_metrics.kappa
 
-        _log_epoch(epoch, config, avg_train_loss, avg_val_loss, kappa, lr, timer.lap(), writer, rank=rank)
+        _log_epoch(
+            epoch,
+            config,
+            avg_train_loss,
+            val_metrics if val_dataloader is not None else None,
+            lr,
+            timer.lap(),
+            writer,
+            rank=rank,
+        )
 
         if rank == 0 and kappa is not None and kappa > best_kappa:
             best_kappa = kappa
