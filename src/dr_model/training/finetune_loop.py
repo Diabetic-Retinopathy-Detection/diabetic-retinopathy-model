@@ -23,6 +23,7 @@ from torch.utils.data import DataLoader, DistributedSampler
 
 from dr_model.config import Settings
 from dr_model.data.finetune_datamodule import FinetuneDataModule
+from dr_model.training.artifacts import write_finetune_artifacts
 from dr_model.training.distributed import rank_zero_only, unwrap_model
 from dr_model.training.metrics import ClassificationMetrics, calculate_classification_metrics
 from dr_model.utils.timer import Timer
@@ -291,6 +292,15 @@ def _evaluate_test(
     _load_model_checkpoint(checkpoint, model, device)
     metrics = _evaluate(model, datamodule.test_dataloader(), criterion, device, world_size)
     _log_split_metrics(metrics, "test", stop_epoch, writer)
+    if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
+        write_finetune_artifacts(
+            config.artifact_dir,
+            config,
+            [],
+            None,
+            metrics,
+            run_name=f"{config.model_name}_{config.finetune_loss}",
+        )
 
 
 def _restore_checkpoint(

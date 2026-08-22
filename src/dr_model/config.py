@@ -59,6 +59,7 @@ class Settings(BaseSettings):
     # ── paths ──────────────────────────────────────────────────────
     checkpoint_dir: Path = Path("checkpoints")
     log_dir: Path = Path("logs")
+    artifact_dir: Path = Path("../artifacts")
     data_dir: Path = Path("../data")
 
     # ── architecture ───────────────────────────────────────────────
