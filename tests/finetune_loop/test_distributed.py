@@ -21,6 +21,26 @@ from dr_model.training.distributed import (
     wrap_model,
 )
 from dr_model.training.finetune_loop import _log_epoch, _save_checkpoint, run
+from dr_model.training.metrics import ClassificationMetrics, calculate_classification_metrics
+
+
+def _val_metrics() -> ClassificationMetrics:
+    labels = [0, 1, 2, 0, 1]
+    predictions = [0, 2, 2, 1, 1]
+    probabilities = [
+        [0.7, 0.2, 0.1, 0.0, 0.0],
+        [0.1, 0.2, 0.7, 0.0, 0.0],
+        [0.05, 0.15, 0.8, 0.0, 0.0],
+        [0.6, 0.3, 0.1, 0.0, 0.0],
+        [0.2, 0.5, 0.3, 0.0, 0.0],
+    ]
+    return calculate_classification_metrics(
+        labels,
+        predictions,
+        probabilities,
+        loss=0.25,
+        num_classes=5,
+    )
 
 
 def _free_port() -> int:
@@ -127,8 +147,7 @@ class TestRankGating:
             epoch=0,
             config=Settings(mlflow=True),
             train_loss=1.0,
-            val_loss=2.0,
-            kappa=0.5,
+            val_metrics=_val_metrics(),
             lr=1e-4,
             t_epoch=1.0,
             writer=writer,
@@ -147,8 +166,7 @@ class TestRankGating:
             epoch=0,
             config=Settings(mlflow=True, tensorboard=False),
             train_loss=0.5,
-            val_loss=0.25,
-            kappa=0.9,
+            val_metrics=_val_metrics(),
             lr=1e-4,
             t_epoch=1.0,
             writer=None,
@@ -174,6 +192,7 @@ def _ddp_worker(rank: int, world_size: int, config_dict: dict[str, object], port
         dm = FinetuneDataModule(config)
         dm.train_dataset = ds  # type: ignore[assignment]
         dm.val_dataset = ds  # type: ignore[assignment]
+        dm.test_dataset = ds  # type: ignore[assignment]
 
         run(
             config=config,

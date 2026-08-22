@@ -11,6 +11,7 @@ across ranks, and checkpoints are written by rank 0.
 from __future__ import annotations
 
 import math
+import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -23,9 +24,9 @@ from torch.utils.data import DataLoader, DistributedSampler
 
 from dr_model.config import Settings
 from dr_model.data.finetune_datamodule import FinetuneDataModule
-from dr_model.training.artifacts import write_finetune_artifacts
+from dr_model.training.artifacts import validation_history_row, write_finetune_artifacts
 from dr_model.training.distributed import rank_zero_only, unwrap_model
-from dr_model.training.metrics import ClassificationMetrics, calculate_classification_metrics
+from dr_model.training.metrics import ClassificationMetrics, EvaluationResult, calculate_classification_metrics
 from dr_model.utils.timer import Timer
 
 if TYPE_CHECKING:
@@ -98,7 +99,7 @@ def _evaluate(
     criterion: nn.Module,
     device: torch.device,
     world_size: int = 1,
-) -> ClassificationMetrics:
+) -> EvaluationResult:
     """Evaluate a classification split and calculate all classification metrics.
 
     Loss sums and step counts are all-reduced across ranks so the mean is
@@ -140,13 +141,28 @@ def _evaluate(
         all_probabilities = [probability for probabilities in probabilities_by_rank for probability in probabilities]
 
     num_classes = len(all_probabilities[0]) if all_probabilities else 0
-    return calculate_classification_metrics(
+    metrics = calculate_classification_metrics(
         all_labels,
         all_preds,
         all_probabilities,
         loss=loss_sum / max(steps, 1),
         num_classes=num_classes,
     )
+    return EvaluationResult(metrics, all_labels, all_preds, all_probabilities)
+
+
+def _append_validation_history(
+    history: list[dict[str, object]],
+    epoch: int,
+    train_loss: float,
+    lr: float,
+    metrics: ClassificationMetrics,
+    rank: int,
+) -> None:
+    """Record one epoch's validation metrics; only rank 0 keeps history."""
+    if rank != 0:
+        return
+    history.append(validation_history_row(epoch, train_loss, lr, metrics))
 
 
 @rank_zero_only
@@ -251,7 +267,9 @@ def _save_checkpoint(
     """Persist full training state for potential resume.
 
     The state dict is taken from the *unwrapped* model so keys never carry
-    a ``module.`` prefix under DDP.
+    a ``module.`` prefix under DDP.  The write is atomic (temporary file
+    plus ``os.replace``) so concurrent readers never observe a partial
+    checkpoint.
     """
     state: dict[str, object] = {
         "epoch": epoch,
@@ -264,7 +282,9 @@ def _save_checkpoint(
         state["total_epochs"] = total_epochs
     if kappa is not None:
         state["kappa"] = kappa
-    torch.save(state, path)
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    torch.save(state, tmp_path)
+    os.replace(tmp_path, path)
 
 
 def _load_model_checkpoint(path: Path, model: nn.Module, device: torch.device) -> None:
@@ -283,22 +303,29 @@ def _evaluate_test(
     save_dir: Path,
     stop_epoch: int,
     writer: SummaryWriter | None,
+    validation_history: list[dict[str, object]],
+    validation_result: EvaluationResult | None,
 ) -> None:
     """Evaluate the selected final checkpoint on the held-out test split."""
     checkpoint_name = f"epoch_{stop_epoch}.pt" if config.skip_validation else "best_validation_weights.pt"
     checkpoint = save_dir / checkpoint_name
+    if torch.distributed.is_initialized():
+        # Single rendezvous before any rank touches the filesystem: rank 0
+        # finishes its checkpoint saves while the others wait, so every rank
+        # then makes the same existence decision on complete files.
+        torch.distributed.barrier()
     if not checkpoint.exists():
         return
     _load_model_checkpoint(checkpoint, model, device)
-    metrics = _evaluate(model, datamodule.test_dataloader(), criterion, device, world_size)
-    _log_split_metrics(metrics, "test", stop_epoch, writer)
+    result = _evaluate(model, datamodule.test_dataloader(), criterion, device, world_size)
+    _log_split_metrics(result.metrics, "test", stop_epoch, writer)
     if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
         write_finetune_artifacts(
             config.artifact_dir,
             config,
-            [],
-            None,
-            metrics,
+            validation_history,
+            validation_result,
+            result,
             run_name=f"{config.model_name}_{config.finetune_loss}",
         )
 
@@ -385,6 +412,9 @@ def run(
     save_dir = config.checkpoint_dir / "finetune"
     save_dir.mkdir(parents=True, exist_ok=True)
 
+    validation_history: list[dict[str, object]] = []
+    best_validation_result: EvaluationResult | None = None
+
     model.train()
     timer = Timer()
     for epoch in range(start_epoch, stop_epoch):
@@ -425,8 +455,10 @@ def run(
         if val_dataloader is None:
             kappa = None
         else:
-            val_metrics = _evaluate(model, val_dataloader, criterion, device, world_size)
+            val_result = _evaluate(model, val_dataloader, criterion, device, world_size)
+            val_metrics = val_result.metrics
             kappa = val_metrics.kappa
+            _append_validation_history(validation_history, epoch, avg_train_loss, lr, val_metrics, rank)
 
         _log_epoch(
             epoch,
@@ -441,6 +473,7 @@ def run(
 
         if rank == 0 and kappa is not None and kappa > best_kappa:
             best_kappa = kappa
+            best_validation_result = val_result
             _save_checkpoint(
                 save_dir / "best_validation_weights.pt",
                 epoch,
@@ -472,4 +505,16 @@ def run(
             kappa=best_kappa if not config.skip_validation else None,
         )
 
-    _evaluate_test(config, model, datamodule, criterion, device, world_size, save_dir, stop_epoch, writer)
+    _evaluate_test(
+        config,
+        model,
+        datamodule,
+        criterion,
+        device,
+        world_size,
+        save_dir,
+        stop_epoch,
+        writer,
+        validation_history,
+        best_validation_result,
+    )

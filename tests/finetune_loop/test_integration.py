@@ -47,7 +47,7 @@ def _eval_worker(rank: int, world_size: int, port: int, seed: int) -> None:
 
         dl = DataLoader(TensorDataset(images, labels), batch_size=8)
         criterion = nn.CrossEntropyLoss()
-        mean_loss, kappa = _evaluate(model, dl, criterion, torch.device("cpu"), world_size)
+        result = _evaluate(model, dl, criterion, torch.device("cpu"), world_size)
 
         model.eval()
         with torch.no_grad():
@@ -71,8 +71,12 @@ def _eval_worker(rank: int, world_size: int, port: int, seed: int) -> None:
         expected_loss = loss_t.item() / cnt_t.item()
         expected_kappa = float(cohen_kappa_score(all_labels, all_preds, weights="quadratic"))
 
-        assert math.isclose(mean_loss, expected_loss)
-        assert math.isclose(kappa, expected_kappa)
+        assert math.isclose(result.metrics.loss, expected_loss)
+        assert math.isclose(result.metrics.kappa, expected_kappa)
+        assert sorted(result.labels) == sorted(all_labels)
+        assert len(result.predictions) == world_size * 8
+        assert len(result.probabilities) == world_size * 8
+        assert all(len(row) == 5 for row in result.probabilities)
     finally:
         cleanup_distributed()
 

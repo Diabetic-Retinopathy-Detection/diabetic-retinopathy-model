@@ -32,6 +32,16 @@ class ClassificationMetrics:
     confusion_matrix: list[list[int]]
 
 
+@dataclass(frozen=True)
+class EvaluationResult:
+    """Metrics plus raw predictions produced for one evaluated split."""
+
+    metrics: ClassificationMetrics
+    labels: list[int]
+    predictions: list[int]
+    probabilities: list[list[float]]
+
+
 def calculate_classification_metrics(
     labels: list[int],
     predictions: list[int],
