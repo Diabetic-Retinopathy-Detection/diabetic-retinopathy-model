@@ -216,6 +216,27 @@ def _log_metrics(
         add_scalar(tag, value, epoch)
 
 
+@rank_zero_only
+def _log_split_metrics(
+    metrics: ClassificationMetrics,
+    split: str,
+    step: int,
+    writer: SummaryWriter | None,
+) -> None:
+    """Log metrics for a completed validation or test split."""
+    values = _metric_scalars(metrics, split)
+    if writer is not None:
+        for tag, value in values.items():
+            writer.add_scalar(tag, value, step)
+    try:
+        import mlflow
+
+        if mlflow.active_run() is not None:
+            mlflow.log_metrics(values, step=step)
+    except ImportError:
+        pass
+
+
 def _save_checkpoint(
     path: Path,
     epoch: int,
@@ -243,6 +264,33 @@ def _save_checkpoint(
     if kappa is not None:
         state["kappa"] = kappa
     torch.save(state, path)
+
+
+def _load_model_checkpoint(path: Path, model: nn.Module, device: torch.device) -> None:
+    """Load model weights from a training checkpoint for held-out evaluation."""
+    state = torch.load(path, map_location=device)
+    unwrap_model(model).load_state_dict(state["state_dict"])
+
+
+def _evaluate_test(
+    config: Settings,
+    model: nn.Module,
+    datamodule: FinetuneDataModule,
+    criterion: nn.Module,
+    device: torch.device,
+    world_size: int,
+    save_dir: Path,
+    stop_epoch: int,
+    writer: SummaryWriter | None,
+) -> None:
+    """Evaluate the selected final checkpoint on the held-out test split."""
+    checkpoint_name = f"epoch_{stop_epoch}.pt" if config.skip_validation else "best_validation_weights.pt"
+    checkpoint = save_dir / checkpoint_name
+    if not checkpoint.exists():
+        return
+    _load_model_checkpoint(checkpoint, model, device)
+    metrics = _evaluate(model, datamodule.test_dataloader(), criterion, device, world_size)
+    _log_split_metrics(metrics, "test", stop_epoch, writer)
 
 
 def _restore_checkpoint(
@@ -413,3 +461,5 @@ def run(
             total_epochs=total_epochs,
             kappa=best_kappa if not config.skip_validation else None,
         )
+
+    _evaluate_test(config, model, datamodule, criterion, device, world_size, save_dir, stop_epoch, writer)
