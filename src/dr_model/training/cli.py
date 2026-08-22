@@ -101,6 +101,18 @@ def main(argv: list[str] | None = None) -> int:
         help="Pretrain checkpoint seeding the fine-tuning trunk (overrides config).",
     )
     parser.add_argument(
+        "--finetune-checkpoint-dir",
+        type=str,
+        default=None,
+        help="Checkpoint directory for this fine-tuning run (overrides config).",
+    )
+    parser.add_argument(
+        "--finetune-loss",
+        choices=["squared_wasserstein", "squared_cdf", "cross_entropy"],
+        default=None,
+        help="Fine-tuning loss (overrides config).",
+    )
+    parser.add_argument(
         "--num-workers",
         type=int,
         default=None,
@@ -178,7 +190,10 @@ def _collect_updates(args: argparse.Namespace) -> dict[str, object]:
         args,
         ("train_on_train_and_valid", "train_on_train_and_valid"),
         ("skip_validation", "skip_validation"),
+        ("finetune_loss", "finetune_loss"),
     )
+    if args.finetune_checkpoint_dir is not None:
+        updates["checkpoint_dir"] = Path(args.finetune_checkpoint_dir)
     return updates
 
 
@@ -284,7 +299,10 @@ def _run_finetune(
             mlflow.log_dict(config.model_dump(), "config.yaml")
 
         if config.tensorboard:
-            writer = init_tensorboard_logger(config, run_name=f"finetune_{config.model_name}")
+            writer = init_tensorboard_logger(
+                config,
+                run_name=f"finetune_{config.model_name}_{config.finetune_loss}",
+            )
 
     try:
         run(

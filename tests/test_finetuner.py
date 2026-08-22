@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import itertools
 import math
 import os
@@ -17,6 +18,7 @@ from dr_model.config import Settings, _load_yaml_config
 from dr_model.data.finetune_datamodule import FinetuneDataModule
 from dr_model.model.backbone import ViTBackbone
 from dr_model.model.finetune import Finetuner
+from dr_model.training.cli import _collect_updates
 from dr_model.training.cli import main as cli_main
 from dr_model.training.finetune_loop import (
     SquaredCDFLoss,
@@ -385,6 +387,27 @@ class TestRun:
 
 
 class TestScript:
+    def test_cli_finetune_overrides(self) -> None:
+        args = argparse.Namespace(
+            seed=None,
+            deterministic=None,
+            data_index_path=None,
+            data_dir=None,
+            finetune_epochs=None,
+            batch_size=None,
+            finetune_checkpoint=None,
+            finetune_checkpoint_dir="checkpoints/wasserstein",
+            finetune_loss="squared_wasserstein",
+            num_workers=None,
+            train_on_train_and_valid=None,
+            skip_validation=None,
+        )
+
+        assert _collect_updates(args) == {
+            "checkpoint_dir": Path("checkpoints/wasserstein"),
+            "finetune_loss": "squared_wasserstein",
+        }
+
     def test_yaml_overlay_overrides_base(self, tmp_path: Path) -> None:
         base = tmp_path / "base.yaml"
         overlay = tmp_path / "overlay.yaml"

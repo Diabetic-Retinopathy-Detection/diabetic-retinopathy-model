@@ -79,6 +79,8 @@ uv run python -m dr_model.training.cli --phase pretrain --device mps --seed 42
 | `--finetune-epochs` | Number of fine-tuning epochs (overrides config) |
 | `--batch-size` | Batch size (overrides config) |
 | `--finetune-checkpoint` | Pretrain checkpoint seeding the fine-tuning trunk (overrides config) |
+| `--finetune-checkpoint-dir` | Checkpoint directory for this fine-tuning run (overrides config) |
+| `--finetune-loss` | `squared_wasserstein`, `squared_cdf`, or `cross_entropy` (overrides config) |
 | `--num-workers` | DataLoader worker processes (overrides config) |
 | `--train-on-train-and-valid` / `--no-train-on-train-and-valid` | Train on a virtual concatenation of the train and validation splits |
 | `--skip-validation` / `--no-skip-validation` | Skip validation during fine-tuning |
@@ -100,7 +102,17 @@ uv run dr-train --phase pretrain --device mps --seed 42 --deterministic
 # Final fixed-epoch fit on train + validation without validation metrics
 uv run dr-train --phase finetune --config configs/finetune_ddr.yaml \
     --device cuda --finetune-epochs 7 \
-    --train-on-train-and-valid --skip-validation
+     --train-on-train-and-valid --skip-validation
+```
+
+To compare fine-tuning losses without overwriting checkpoints, use a separate
+checkpoint directory for each run:
+
+```bash
+uv run dr-train --phase finetune --config configs/finetune_ddr.yaml \
+    --finetune-loss squared_wasserstein \
+    --finetune-checkpoint-dir checkpoints/finetune/squared_wasserstein \
+    --device mps --seed 42
 ```
 
 Override via YAML `data_index_path:` or environment variable `DR_DATA_INDEX_PATH`.
