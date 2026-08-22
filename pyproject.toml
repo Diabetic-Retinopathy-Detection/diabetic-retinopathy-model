@@ -41,6 +41,7 @@ dependencies = [
 dr-train = "dr_model.training.cli:main"
 dr-serve = "dr_model.serve.app:main"
 dr-report = "dr_model.training.report:main"
+dr-evaluate = "dr_model.training.evaluate:main"
 
 [project.urls]
 Homepage = "https://diabetic-retinopathy-detection.github.io/diabetic-retinopathy-model/"
