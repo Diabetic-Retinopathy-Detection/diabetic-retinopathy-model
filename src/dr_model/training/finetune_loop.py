@@ -17,13 +17,13 @@ from typing import TYPE_CHECKING
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from sklearn.metrics import cohen_kappa_score
 from torch.optim import AdamW
 from torch.utils.data import DataLoader, DistributedSampler
 
 from dr_model.config import Settings
 from dr_model.data.finetune_datamodule import FinetuneDataModule
 from dr_model.training.distributed import rank_zero_only, unwrap_model
+from dr_model.training.metrics import ClassificationMetrics, calculate_classification_metrics
 from dr_model.utils.timer import Timer
 
 if TYPE_CHECKING:
@@ -92,48 +92,59 @@ def adjust_lr(
 @torch.no_grad()
 def _evaluate(
     model: nn.Module,
-    val_dataloader: DataLoader,
+    dataloader: DataLoader,
     criterion: nn.Module,
     device: torch.device,
     world_size: int = 1,
-) -> tuple[float, float]:
-    """Mean validation loss and quadratic-weighted Cohen's kappa.
+) -> ClassificationMetrics:
+    """Evaluate a classification split and calculate all classification metrics.
 
     Loss sums and step counts are all-reduced across ranks so the mean is
-    computed over the whole validation split; predictions and labels are
-    gathered so kappa is also computed on the full split (not per-rank).
+    computed over the whole split; predictions, labels, and probabilities are
+    gathered so metrics are also computed on the full split (not per-rank).
     """
     model.eval()
-    val_loss_sum = 0.0
+    loss_sum = 0.0
     steps = 0
     all_labels: list[int] = []
     all_preds: list[int] = []
-    for images, labels in val_dataloader:
+    all_probabilities: list[list[float]] = []
+    for images, labels in dataloader:
         labels_cpu = labels.tolist()
         logits = model(images.to(device))
-        val_loss_sum += criterion(logits, labels.to(device)).item()
+        loss_sum += criterion(logits, labels.to(device)).item()
         all_labels.extend(labels_cpu)
         all_preds.extend(logits.argmax(dim=1).tolist())
+        all_probabilities.extend(torch.softmax(logits, dim=1).cpu().tolist())
         steps += 1
     model.train()
 
     if world_size > 1:
-        loss_t = torch.tensor([val_loss_sum], device=device)
+        loss_t = torch.tensor([loss_sum], device=device)
         cnt_t = torch.tensor([float(steps)], device=device)
         torch.distributed.all_reduce(loss_t, op=torch.distributed.ReduceOp.SUM)
         torch.distributed.all_reduce(cnt_t, op=torch.distributed.ReduceOp.SUM)
-        val_loss_sum = loss_t.item()
+        loss_sum = loss_t.item()
         steps = int(cnt_t.item())
 
         labels_by_rank: list[list[int]] = [[] for _ in range(world_size)]
         preds_by_rank: list[list[int]] = [[] for _ in range(world_size)]
+        probabilities_by_rank: list[list[list[float]]] = [[] for _ in range(world_size)]
         torch.distributed.all_gather_object(labels_by_rank, all_labels)
         torch.distributed.all_gather_object(preds_by_rank, all_preds)
+        torch.distributed.all_gather_object(probabilities_by_rank, all_probabilities)
         all_labels = [label for labels in labels_by_rank for label in labels]
         all_preds = [pred for preds in preds_by_rank for pred in preds]
+        all_probabilities = [probability for probabilities in probabilities_by_rank for probability in probabilities]
 
-    kappa = float(cohen_kappa_score(all_labels, all_preds, weights="quadratic"))
-    return val_loss_sum / max(steps, 1), kappa
+    num_classes = len(all_probabilities[0]) if all_probabilities else 0
+    return calculate_classification_metrics(
+        all_labels,
+        all_preds,
+        all_probabilities,
+        loss=loss_sum / max(steps, 1),
+        num_classes=num_classes,
+    )
 
 
 @rank_zero_only
@@ -323,7 +334,9 @@ def run(
             avg_val_loss = None
             kappa = None
         else:
-            avg_val_loss, kappa = _evaluate(model, val_dataloader, criterion, device, world_size)
+            val_metrics = _evaluate(model, val_dataloader, criterion, device, world_size)
+            avg_val_loss = val_metrics.loss
+            kappa = val_metrics.kappa
 
         _log_epoch(epoch, config, avg_train_loss, avg_val_loss, kappa, lr, timer.lap(), writer, rank=rank)
 
