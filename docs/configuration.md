@@ -52,7 +52,7 @@ uv run dr-train --phase finetune \
     --device mps --seed 42
 ```
 
-The shared fine-tuning defaults, including `finetune_loss: squared_emd`, live
+The shared fine-tuning defaults, including `finetune_loss: squared_wasserstein`, live
 in `configs/finetune_base.yaml`.
 
 ## CLI usage

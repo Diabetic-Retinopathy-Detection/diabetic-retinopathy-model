@@ -30,8 +30,8 @@ if TYPE_CHECKING:
     from torch.utils.tensorboard import SummaryWriter
 
 
-class SquaredEMDLoss(nn.Module):
-    """Squared EMD loss for ordinal class labels and probability outputs."""
+class SquaredCDFLoss(nn.Module):
+    """Mean squared difference between predicted and target CDFs."""
 
     def forward(self, logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
         probabilities = torch.softmax(logits, dim=1)
@@ -41,13 +41,28 @@ class SquaredEMDLoss(nn.Module):
         return (predicted_cdf - target_cdf).square().mean()
 
 
+class SquaredWassersteinLoss(nn.Module):
+    """Squared 2-Wasserstein loss for one-hot ordinal class labels."""
+
+    def forward(self, logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+        probabilities = torch.softmax(logits, dim=1)
+        class_positions = torch.arange(logits.shape[1], device=logits.device, dtype=logits.dtype)
+        distances = (class_positions.unsqueeze(0) - labels.unsqueeze(1)).square()
+        return (probabilities * distances).sum(dim=1).mean()
+
+
 def build_finetune_criterion(config: Settings) -> nn.Module:
     """Build the configured supervised fine-tuning loss."""
-    if config.finetune_loss == "squared_emd":
-        return SquaredEMDLoss()
+    if config.finetune_loss == "squared_wasserstein":
+        return SquaredWassersteinLoss()
+    if config.finetune_loss == "squared_cdf":
+        return SquaredCDFLoss()
     if config.finetune_loss == "cross_entropy":
         return nn.CrossEntropyLoss()
-    msg = f"Unsupported finetune_loss: {config.finetune_loss!r}; expected 'squared_emd' or 'cross_entropy'"
+    msg = (
+        f"Unsupported finetune_loss: {config.finetune_loss!r}; expected "
+        "'squared_wasserstein', 'squared_cdf', or 'cross_entropy'"
+    )
     raise ValueError(msg)
 
 

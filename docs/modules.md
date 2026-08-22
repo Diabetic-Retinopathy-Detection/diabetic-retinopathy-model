@@ -216,7 +216,9 @@ fine-tuning resolution when the checkpoint was trained at a different one.
 - **Learning rate**: linear warmup from 0 to `finetune_lr` over `finetune_warmup_epochs`,
   then cosine decay to `finetune_min_lr`. Matches SSiT when `finetune_min_lr == 0`.
 - **Optimiser**: AdamW with `finetune_weight_decay`; loss is configurable via
-  `finetune_loss` and defaults to squared EMD (`squared_emd`).
+  `finetune_loss` and defaults to squared 2-Wasserstein
+  (`squared_wasserstein`). Other options are squared CDF (`squared_cdf`) and
+  cross-entropy (`cross_entropy`).
 - **Evaluation**: quadratic-weighted Cohen's kappa on the validation split each epoch.
 
 ### Checkpoints

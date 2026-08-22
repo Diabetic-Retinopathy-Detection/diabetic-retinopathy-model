@@ -6,8 +6,8 @@ _base_: finetune_base.yaml
 # prepare-ddr tool in the preprocess-retina-datasets repo). Use
 # prepare-ddr --copy when the prepared tree will be transferred to another
 # machine; this keeps the ImageFolder independent of source symlinks.
-# Root is relative to the container workdir (/app), so this resolves to
-# /app/data/ddr via the scratch bind mount.
+# Root points at the prepared DDR ImageFolder tree in the shared datasets
+# directory.
 #
 # Only keys the fine-tuning path actually reads are listed here; the
 # pretraining-only keys (image_size, learning_rate, max_epochs, ...) live in
@@ -16,7 +16,7 @@ _base_: finetune_base.yaml
 
 # Fine-tuning data (DDR by default; swap root and mean/std for APTOS-2019
 # or Messidor-2). DDR stats from SSiT funcs.py via dr_model.data.constants.
-finetune_dataset_root: data/ddr
+finetune_dataset_root: /Users/k2366861/DiabeticRetinopathy/datasets/DDR-ImageFolder-cropped
 finetune_input_size: 384
 finetune_mean: [0.423737496137619, 0.2609460651874542, 0.128403902053833]
 finetune_std: [0.29482534527778625, 0.20167365670204163, 0.13668020069599152]

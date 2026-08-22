@@ -20,7 +20,7 @@ precision: 16-mixed
 
 # Fine-tuning
 finetune_input_size: 384
-finetune_loss: squared_emd
+finetune_loss: squared_wasserstein
 finetune_lr: 2.0e-5
 finetune_min_lr: 0.0
 finetune_weight_decay: 1.0e-5

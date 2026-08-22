@@ -18,7 +18,13 @@ from dr_model.data.finetune_datamodule import FinetuneDataModule
 from dr_model.model.backbone import ViTBackbone
 from dr_model.model.finetune import Finetuner
 from dr_model.training.cli import main as cli_main
-from dr_model.training.finetune_loop import SquaredEMDLoss, adjust_lr, build_finetune_criterion, run
+from dr_model.training.finetune_loop import (
+    SquaredCDFLoss,
+    SquaredWassersteinLoss,
+    adjust_lr,
+    build_finetune_criterion,
+    run,
+)
 
 if TYPE_CHECKING:
     pass
@@ -209,27 +215,39 @@ class TestAdjustLr:
 
 
 class TestFinetuneLoss:
-    def test_squared_emd_matches_cumulative_distribution_formula(self) -> None:
+    def test_squared_wasserstein_matches_expected_transport_cost(self) -> None:
+        logits = torch.log(torch.tensor([[0.0, 0.5, 0.0, 0.5, 0.0]], dtype=torch.float32) + 1e-8)
+        labels = torch.tensor([2])
+
+        loss = SquaredWassersteinLoss()(logits, labels)
+
+        assert loss == pytest.approx(1.0, abs=1e-6)
+
+    def test_squared_cdf_matches_cumulative_distribution_formula(self) -> None:
         logits = torch.log(torch.tensor([[0.1, 0.2, 0.7]], dtype=torch.float32))
         labels = torch.tensor([1])
 
-        loss = SquaredEMDLoss()(logits, labels)
+        loss = SquaredCDFLoss()(logits, labels)
         expected = ((torch.tensor([0.1, 0.3, 1.0]) - torch.tensor([0.0, 1.0, 1.0])) ** 2).mean()
 
         assert loss == pytest.approx(expected.item())
 
-    def test_squared_emd_has_finite_gradients(self) -> None:
+    def test_ordinal_losses_have_finite_gradients(self) -> None:
         logits = torch.randn(2, 5, requires_grad=True)
 
-        SquaredEMDLoss()(logits, torch.tensor([0, 4])).backward()
+        SquaredWassersteinLoss()(logits, torch.tensor([0, 4])).backward()
 
         assert logits.grad is not None
         assert torch.isfinite(logits.grad).all()
 
-    def test_default_and_cross_entropy_criteria(self) -> None:
+    def test_default_and_alternative_criteria(self) -> None:
         config = _settings(None)
 
-        assert isinstance(build_finetune_criterion(config), SquaredEMDLoss)
+        assert isinstance(build_finetune_criterion(config), SquaredWassersteinLoss)
+        assert isinstance(
+            build_finetune_criterion(config.model_copy(update={"finetune_loss": "squared_cdf"})),
+            SquaredCDFLoss,
+        )
         assert isinstance(
             build_finetune_criterion(config.model_copy(update={"finetune_loss": "cross_entropy"})),
             nn.CrossEntropyLoss,
@@ -370,7 +388,7 @@ class TestScript:
     def test_yaml_overlay_overrides_base(self, tmp_path: Path) -> None:
         base = tmp_path / "base.yaml"
         overlay = tmp_path / "overlay.yaml"
-        base.write_text("finetune_loss: squared_emd\nnum_classes: 5\n")
+        base.write_text("finetune_loss: squared_wasserstein\nnum_classes: 5\n")
         overlay.write_text("_base_: base.yaml\nfinetune_loss: cross_entropy\n")
 
         values = _load_yaml_config(overlay)
