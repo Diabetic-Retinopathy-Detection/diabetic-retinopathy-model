@@ -27,6 +27,7 @@ from dr_model.training.finetune_loop import (
     build_finetune_criterion,
     run,
 )
+from dr_model.training.metrics import calculate_classification_metrics
 
 if TYPE_CHECKING:
     pass
@@ -258,6 +259,44 @@ class TestFinetuneLoss:
     def test_unknown_criterion_raises(self) -> None:
         with pytest.raises(ValueError, match="Unsupported finetune_loss"):
             build_finetune_criterion(_settings(None).model_copy(update={"finetune_loss": "unknown"}))
+
+
+class TestClassificationMetrics:
+    def test_calculates_aggregate_and_per_class_metrics(self) -> None:
+        labels = [0, 1, 2, 3, 4]
+        probabilities = torch.eye(5).tolist()
+        metrics = calculate_classification_metrics(labels, labels, probabilities, loss=0.25, num_classes=5)
+
+        assert metrics.loss == 0.25
+        assert metrics.kappa == pytest.approx(1.0)
+        assert metrics.accuracy == pytest.approx(1.0)
+        assert metrics.f1_macro == pytest.approx(1.0)
+        assert metrics.f1_weighted == pytest.approx(1.0)
+        assert metrics.auc_macro == pytest.approx(1.0)
+        assert metrics.auc_weighted == pytest.approx(1.0)
+        assert metrics.f1_per_class == pytest.approx([1.0] * 5)
+        assert metrics.auc_per_class == pytest.approx([1.0] * 5)
+        assert metrics.recall_per_class == pytest.approx([1.0] * 5)
+        assert metrics.confusion_matrix == np.eye(5, dtype=int).tolist()
+
+    def test_missing_class_keeps_fixed_arrays_and_skips_auc(self) -> None:
+        labels = [0, 0, 1, 1]
+        predictions = [0, 1, 1, 1]
+        probabilities = [
+            [0.8, 0.1, 0.05, 0.03, 0.02],
+            [0.1, 0.7, 0.1, 0.06, 0.04],
+            [0.1, 0.8, 0.04, 0.03, 0.03],
+            [0.05, 0.85, 0.04, 0.03, 0.03],
+        ]
+
+        metrics = calculate_classification_metrics(labels, predictions, probabilities, loss=1.0, num_classes=5)
+
+        assert len(metrics.recall_per_class) == 5
+        assert len(metrics.confusion_matrix) == 5
+        assert metrics.auc_macro is None
+        assert metrics.auc_weighted is None
+        assert metrics.auc_per_class[0] is not None
+        assert metrics.auc_per_class[2:] == [None, None, None]
 
 
 class TestFinetuneDataModule:
