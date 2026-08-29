@@ -1,13 +1,13 @@
 """Supervised grading dataset over a pre-split ImageFolder tree.
 
-The fine-tuning datasets (APTOS 2019, Messidor-2, DDR) are prepared by
-``utils/crop.py`` into a ``<dataset_root>/{train,val,test}/{0..4}/`` layout
-(where the validation split may be named ``valid`` instead of ``val``) and
-each subdirectory name is the DR grade.  ``GradingDataset`` wraps a
-*single* split directory in :class:`torchvision.datasets.ImageFolder`;
-labels come from the subdirectory names.  Nothing here parses CSVs, resolves
-original labels, or defines splits — that information is consumed during
-preprocessing and encoded in the filesystem.
+Fine-tuning datasets are prepared outside this repository by the
+``preprocess-retina-datasets`` project into a
+``<dataset_root>/{train,val,test}/{0..4}/`` layout (where the validation split
+may be named ``valid`` instead of ``val``). Each subdirectory name is the DR
+grade. ``GradingDataset`` wraps a *single* split directory in
+:class:`torchvision.datasets.ImageFolder`; labels come from the subdirectory
+names. Nothing here parses source labels, creates crops, or defines splits --
+that information is encoded in the prepared filesystem.
 """
 
 from __future__ import annotations

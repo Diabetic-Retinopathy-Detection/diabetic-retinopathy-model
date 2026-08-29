@@ -1,50 +1,24 @@
 # Fine-tuning config for supervised DR grading on DDR (DRC-49).
+# Shared settings are loaded from finetune_base.yaml.
+_base_: finetune_base.yaml
 # The dataset must already be staged as an ImageFolder tree
 # <finetune_dataset_root>/{train,valid,test}/{0,1,2,3,4}/ (see the
-# prepare-ddr tool in the preprocess-retina-datasets repo). Images are
-# transferred with rsync --copy-links (the local ImageFolder is symlinked).
-# Root is relative to the container workdir (/app), so this resolves to
-# /app/data/ddr via the scratch bind mount.
+# prepare-ddr tool in the preprocess-retina-datasets repo). Use
+# prepare-ddr --copy when the prepared tree will be transferred to another
+# machine; this keeps the ImageFolder independent of source symlinks.
+# Root points at the prepared DDR ImageFolder tree in the shared datasets
+# directory.
 #
 # Only keys the fine-tuning path actually reads are listed here; the
 # pretraining-only keys (image_size, learning_rate, max_epochs, ...) live in
 # the pretrain configs. finetune_checkpoint is resolved relative to the
 # working directory (checkpoints/ = /app/checkpoints inside the container).
 
-# Architecture: standard ViT-B/16 per Dosovitskiy et al. (2020)
-patch_size: 16
-embed_dim: 768
-depth: 12
-num_heads: 12
-mlp_ratio: 4.0
-drop_rate: 0.0
-attn_drop_rate: 0.0
-num_classes: 5
-
-# Training
-batch_size: 32
-num_workers: 4
-pin_memory: true
-gradient_clip_val: 1.0
-precision: 16-mixed
-
 # Fine-tuning data (DDR by default; swap root and mean/std for APTOS-2019
 # or Messidor-2). DDR stats from SSiT funcs.py via dr_model.data.constants.
-finetune_dataset_root: data/ddr
+finetune_dataset_root: /Users/k2366861/DiabeticRetinopathy/datasets/DDR-ImageFolder-cropped
 finetune_input_size: 384
 finetune_mean: [0.423737496137619, 0.2609460651874542, 0.128403902053833]
 finetune_std: [0.29482534527778625, 0.20167365670204163, 0.13668020069599152]
 
-# Fine-tuning hyper-parameters (SSiT defaults live in Settings for research runs).
-finetune_lr: 3.0e-4
-finetune_min_lr: 0.0
-finetune_weight_decay: 0.05
-finetune_warmup_epochs: 5
-finetune_epochs: 50
-finetune_checkpoint: checkpoints/full-pretraining/checkpoint.pt
-
-# Serving (shared Settings, read by dr-serve)
-host: 0.0.0.0
-port: 8000
-workers: 1
-serving_checkpoint: checkpoints/finetune/best_validation_weights.pt
+mlflow_experiment_name: dr-finetune

@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import argparse
+import csv
 import itertools
+import json
 import math
 import os
+from collections.abc import Sized
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -13,12 +17,21 @@ import torch.nn as nn
 import yaml
 from PIL import Image
 
-from dr_model.config import Settings
+from dr_model.config import Settings, _load_yaml_config
 from dr_model.data.finetune_datamodule import FinetuneDataModule
 from dr_model.model.backbone import ViTBackbone
 from dr_model.model.finetune import Finetuner
+from dr_model.training.artifacts import validation_history_row, write_finetune_artifacts
+from dr_model.training.cli import _collect_updates
 from dr_model.training.cli import main as cli_main
-from dr_model.training.finetune_loop import adjust_lr, run
+from dr_model.training.finetune_loop import (
+    SquaredCDFLoss,
+    SquaredWassersteinLoss,
+    adjust_lr,
+    build_finetune_criterion,
+    run,
+)
+from dr_model.training.metrics import EvaluationResult, calculate_classification_metrics
 
 if TYPE_CHECKING:
     pass
@@ -74,6 +87,12 @@ def _source_encoder(config: Settings) -> ViTBackbone:
 
 
 class TestFinetuner:
+    def test_direct_settings_defaults_match_ddr(self) -> None:
+        config = Settings()
+
+        assert config.finetune_mean == [0.423737496137619, 0.2609460651874542, 0.128403902053833]
+        assert config.finetune_std == [0.29482534527778625, 0.20167365670204163, 0.13668020069599152]
+
     def test_forward_logits_shape(self) -> None:
         model = Finetuner(_settings(None))
 
@@ -202,6 +221,88 @@ class TestAdjustLr:
         assert adjust_lr(opt, config, 5.0) == pytest.approx(config.finetune_lr)
 
 
+class TestFinetuneLoss:
+    def test_squared_wasserstein_matches_expected_transport_cost(self) -> None:
+        logits = torch.log(torch.tensor([[0.0, 0.5, 0.0, 0.5, 0.0]], dtype=torch.float32) + 1e-8)
+        labels = torch.tensor([2])
+
+        loss = SquaredWassersteinLoss()(logits, labels)
+
+        assert loss == pytest.approx(1.0, abs=1e-6)
+
+    def test_squared_cdf_matches_cumulative_distribution_formula(self) -> None:
+        logits = torch.log(torch.tensor([[0.1, 0.2, 0.7]], dtype=torch.float32))
+        labels = torch.tensor([1])
+
+        loss = SquaredCDFLoss()(logits, labels)
+        expected = ((torch.tensor([0.1, 0.3, 1.0]) - torch.tensor([0.0, 1.0, 1.0])) ** 2).mean()
+
+        assert loss == pytest.approx(expected.item())
+
+    def test_ordinal_losses_have_finite_gradients(self) -> None:
+        logits = torch.randn(2, 5, requires_grad=True)
+
+        SquaredWassersteinLoss()(logits, torch.tensor([0, 4])).backward()
+
+        assert logits.grad is not None
+        assert torch.isfinite(logits.grad).all()
+
+    def test_default_and_alternative_criteria(self) -> None:
+        config = _settings(None)
+
+        assert isinstance(build_finetune_criterion(config), SquaredWassersteinLoss)
+        assert isinstance(
+            build_finetune_criterion(config.model_copy(update={"finetune_loss": "squared_cdf"})),
+            SquaredCDFLoss,
+        )
+        assert isinstance(
+            build_finetune_criterion(config.model_copy(update={"finetune_loss": "cross_entropy"})),
+            nn.CrossEntropyLoss,
+        )
+
+    def test_unknown_criterion_raises(self) -> None:
+        with pytest.raises(ValueError, match="Unsupported finetune_loss"):
+            build_finetune_criterion(_settings(None).model_copy(update={"finetune_loss": "unknown"}))
+
+
+class TestClassificationMetrics:
+    def test_calculates_aggregate_and_per_class_metrics(self) -> None:
+        labels = [0, 1, 2, 3, 4]
+        probabilities = torch.eye(5).tolist()
+        metrics = calculate_classification_metrics(labels, labels, probabilities, loss=0.25, num_classes=5)
+
+        assert metrics.loss == 0.25
+        assert metrics.kappa == pytest.approx(1.0)
+        assert metrics.accuracy == pytest.approx(1.0)
+        assert metrics.f1_macro == pytest.approx(1.0)
+        assert metrics.f1_weighted == pytest.approx(1.0)
+        assert metrics.auc_macro == pytest.approx(1.0)
+        assert metrics.auc_weighted == pytest.approx(1.0)
+        assert metrics.f1_per_class == pytest.approx([1.0] * 5)
+        assert metrics.auc_per_class == pytest.approx([1.0] * 5)
+        assert metrics.recall_per_class == pytest.approx([1.0] * 5)
+        assert metrics.confusion_matrix == np.eye(5, dtype=int).tolist()
+
+    def test_missing_class_keeps_fixed_arrays_and_skips_auc(self) -> None:
+        labels = [0, 0, 1, 1]
+        predictions = [0, 1, 1, 1]
+        probabilities = [
+            [0.8, 0.1, 0.05, 0.03, 0.02],
+            [0.1, 0.7, 0.1, 0.06, 0.04],
+            [0.1, 0.8, 0.04, 0.03, 0.03],
+            [0.05, 0.85, 0.04, 0.03, 0.03],
+        ]
+
+        metrics = calculate_classification_metrics(labels, predictions, probabilities, loss=1.0, num_classes=5)
+
+        assert len(metrics.recall_per_class) == 5
+        assert len(metrics.confusion_matrix) == 5
+        assert metrics.auc_macro is None
+        assert metrics.auc_weighted is None
+        assert metrics.auc_per_class[0] is not None
+        assert metrics.auc_per_class[2:] == [None, None, None]
+
+
 class TestFinetuneDataModule:
     def test_setup_accepts_valid_split_dir(self, tmp_path: Path) -> None:
         root = tmp_path / "dataset"
@@ -212,6 +313,8 @@ class TestFinetuneDataModule:
 
         assert dm.val_dataset is not None
         assert dm.test_dataset is not None
+        assert isinstance(dm.val_dataset, Sized)
+        assert isinstance(dm.test_dataset, Sized)
         assert len(dm.val_dataset) == len(dm.test_dataset) == len(GRADES) * 2
 
     def test_setup_missing_val_and_valid_raises(self, tmp_path: Path) -> None:
@@ -244,7 +347,17 @@ class TestRun:
         run(config=config, model=model, datamodule=dm, device=torch.device("cpu"), writer=writer)  # type: ignore[arg-type]
 
         tags = {tag for tag, _value, _step in writer.scalars}
-        assert {"loss/train", "loss/val", "kappa/val", "lr"} <= tags
+        assert {
+            "loss/train",
+            "loss/val",
+            "kappa/val",
+            "accuracy/val",
+            "f1/macro/val",
+            "f1/weighted/val",
+            "recall/class_0/val",
+            "recall/class_4/val",
+            "lr",
+        } <= tags
         kappa = next(value for tag, value, _step in writer.scalars if tag == "kappa/val")
         assert math.isfinite(kappa)
 
@@ -263,8 +376,204 @@ class TestRun:
 
         assert (config.checkpoint_dir / "finetune" / "epoch_2.pt").exists()
 
+    def test_train_on_train_and_valid_without_validation(self, tmp_path: Path) -> None:
+        root = _make_dataset_root(tmp_path)
+        config = _settings(root, batch_size=2, checkpoint_dir=tmp_path / "ckpts", finetune_epochs=1)
+        config = config.model_copy(update={"train_on_train_and_valid": True, "skip_validation": True})
+        dm = FinetuneDataModule(config)
+        dm.setup()
+        assert dm.train_dataset is not None
+        assert isinstance(dm.train_dataset, Sized)
+        assert len(dm.train_dataset) == 20
+        assert dm.val_dataset is None
+
+        writer = _FakeWriter()
+        run(
+            config=config,
+            model=Finetuner(config),
+            datamodule=dm,
+            device=torch.device("cpu"),
+            writer=writer,  # type: ignore[arg-type]
+        )
+
+        tags = {tag for tag, _value, _step in writer.scalars}
+        assert {"loss/train", "lr"} <= tags
+        assert "loss/val" not in tags
+        assert not (config.checkpoint_dir / "finetune" / "best_validation_weights.pt").exists()
+        assert (config.checkpoint_dir / "finetune" / "epoch_1.pt").exists()
+
+    def test_resume_for_additional_epochs(self, tmp_path: Path) -> None:
+        root = _make_dataset_root(tmp_path)
+        checkpoint_dir = tmp_path / "ckpts"
+
+        first_config = _settings(root, batch_size=2, checkpoint_dir=checkpoint_dir, finetune_epochs=1)
+        first_dm = FinetuneDataModule(first_config)
+        first_dm.setup()
+        run(
+            config=first_config,
+            model=Finetuner(first_config),
+            datamodule=first_dm,
+            device=torch.device("cpu"),
+        )
+
+        resume_path = checkpoint_dir / "finetune" / "epoch_1.pt"
+        assert resume_path.exists()
+        legacy_state = torch.load(resume_path, map_location="cpu")
+        legacy_state.pop("total_epochs", None)
+        legacy_state.pop("kappa", None)
+        torch.save(legacy_state, resume_path)
+
+        resumed_config = _settings(root, batch_size=2, checkpoint_dir=checkpoint_dir, finetune_epochs=25)
+        resumed_dm = FinetuneDataModule(resumed_config)
+        resumed_dm.setup()
+        run(
+            config=resumed_config,
+            model=Finetuner(resumed_config),
+            datamodule=resumed_dm,
+            device=torch.device("cpu"),
+            resume_path=resume_path,
+            extra_epochs=1,
+        )
+
+        final_path = checkpoint_dir / "finetune" / "epoch_2.pt"
+        assert final_path.exists()
+        state = torch.load(final_path, map_location="cpu")
+        assert state["epoch"] == 1
+        assert state["total_epochs"] == 25
+
+
+class TestFinetuneArtifacts:
+    @staticmethod
+    def _result() -> EvaluationResult:
+        labels = [0, 1, 2, 3, 4]
+        predictions = [0, 2, 2, 3, 4]
+        probabilities = [
+            [0.7, 0.1, 0.15, 0.03, 0.02],
+            [0.05, 0.15, 0.7, 0.06, 0.04],
+            [0.02, 0.08, 0.8, 0.07, 0.03],
+            [0.01, 0.04, 0.1, 0.75, 0.1],
+            [0.03, 0.02, 0.1, 0.15, 0.7],
+        ]
+        metrics = calculate_classification_metrics(labels, predictions, probabilities, loss=0.5, num_classes=5)
+        return EvaluationResult(metrics, labels, predictions, probabilities)
+
+    ARTIFACT_FILES = (
+        "config.json",
+        "run.json",
+        "validation_history.csv",
+        "validation_metrics.json",
+        "validation_confusion_matrix.csv",
+        "validation_labels.csv",
+        "validation_predictions.csv",
+        "validation_probabilities.csv",
+        "test_metrics.json",
+        "test_confusion_matrix.csv",
+        "test_labels.csv",
+        "test_predictions.csv",
+        "test_probabilities.csv",
+    )
+
+    def test_writer_writes_complete_contract(self, tmp_path: Path) -> None:
+        config = _settings(None)
+        result = self._result()
+        history = [validation_history_row(0, 1.5, 1e-4, result.metrics)]
+
+        output = write_finetune_artifacts(
+            tmp_path / "artifacts", config, history, result, result, run_name="model_squared_wasserstein"
+        )
+
+        assert output.parent == tmp_path / "artifacts"
+        assert output.name.startswith("model_squared_wasserstein_")
+        for name in self.ARTIFACT_FILES:
+            assert (output / name).exists(), name
+
+        config_json = json.loads((output / "config.json").read_text())
+        assert config_json["finetune_loss"] == config.finetune_loss
+
+        with (output / "validation_history.csv").open() as stream:
+            rows = list(csv.DictReader(stream))
+        assert len(rows) == 1
+        assert rows[0]["epoch"] == "0"
+        assert rows[0]["train_loss"] == "1.5"
+
+        test_labels = list(csv.DictReader((output / "test_labels.csv").open()))
+        test_preds = list(csv.DictReader((output / "test_predictions.csv").open()))
+        test_probs = list(csv.DictReader((output / "test_probabilities.csv").open()))
+        assert [row["label"] for row in test_labels] == ["0", "1", "2", "3", "4"]
+        assert [row["prediction"] for row in test_preds] == ["0", "2", "2", "3", "4"]
+        assert len(test_probs) == 5
+        assert set(test_probs[0]) == {f"class_{index}" for index in GRADES}
+
+        metrics_json = json.loads((output / "test_metrics.json").read_text())
+        assert metrics_json["kappa"] == pytest.approx(result.metrics.kappa)
+
+    def test_repeated_runs_do_not_overwrite(self, tmp_path: Path) -> None:
+        config = _settings(None)
+        first = write_finetune_artifacts(tmp_path, config, [], None, None, run_name="run")
+        second = write_finetune_artifacts(tmp_path, config, [], None, None, run_name="run")
+        assert first != second
+        assert (first / "config.json").exists()
+        assert (second / "config.json").exists()
+
+    def test_run_exports_validation_and_test_artifacts(self, tmp_path: Path) -> None:
+        root = _make_dataset_root(tmp_path)
+        config = _settings(root, batch_size=2, checkpoint_dir=tmp_path / "ckpts")
+        config = config.model_copy(update={"artifact_dir": tmp_path / "artifacts"})
+        dm = FinetuneDataModule(config)
+        dm.setup()
+
+        run(config=config, model=Finetuner(config), datamodule=dm, device=torch.device("cpu"))
+
+        outputs = list((tmp_path / "artifacts").iterdir())
+        assert len(outputs) == 1
+        output = outputs[0]
+        for name in self.ARTIFACT_FILES:
+            assert (output / name).exists(), name
+
+        with (output / "validation_history.csv").open() as stream:
+            history = list(csv.DictReader(stream))
+        assert [int(row["epoch"]) for row in history] == [0, 1]
+
+        best_state = torch.load(config.checkpoint_dir / "finetune" / "best_validation_weights.pt", map_location="cpu")
+        best_kappa = max(float(row["kappa"]) for row in history)
+        assert float(best_state["kappa"]) == pytest.approx(best_kappa)
+
+        n_test = sum(1 for _ in csv.DictReader((output / "test_labels.csv").open()))
+        assert n_test == 10
+
 
 class TestScript:
+    def test_cli_finetune_overrides(self) -> None:
+        args = argparse.Namespace(
+            seed=None,
+            deterministic=None,
+            data_index_path=None,
+            data_dir=None,
+            finetune_epochs=None,
+            batch_size=None,
+            finetune_checkpoint=None,
+            finetune_checkpoint_dir="checkpoints/wasserstein",
+            finetune_loss="squared_wasserstein",
+            num_workers=None,
+            train_on_train_and_valid=None,
+            skip_validation=None,
+        )
+
+        assert _collect_updates(args) == {
+            "checkpoint_dir": Path("checkpoints/wasserstein"),
+            "finetune_loss": "squared_wasserstein",
+        }
+
+    def test_yaml_overlay_overrides_base(self, tmp_path: Path) -> None:
+        base = tmp_path / "base.yaml"
+        overlay = tmp_path / "overlay.yaml"
+        base.write_text("finetune_loss: squared_wasserstein\nnum_classes: 5\n")
+        overlay.write_text("_base_: base.yaml\nfinetune_loss: cross_entropy\n")
+
+        values = _load_yaml_config(overlay)
+
+        assert values == {"finetune_loss": "cross_entropy", "num_classes": 5}
+
     def test_main_smoke(self, tmp_path: Path) -> None:
         root = _make_dataset_root(tmp_path)
         cfg_path = tmp_path / "finetune_smoke.yaml"

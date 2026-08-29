@@ -1,0 +1,37 @@
+# Shared supervised fine-tuning settings. Dataset-specific overlays should
+# declare `_base_: finetune_base.yaml` and provide their data values.
+
+# Architecture: standard ViT-B/16 per Dosovitskiy et al. (2020)
+patch_size: 16
+embed_dim: 768
+depth: 12
+num_heads: 12
+mlp_ratio: 4.0
+drop_rate: 0.0
+attn_drop_rate: 0.0
+num_classes: 5
+
+# Training
+batch_size: 16
+num_workers: 4
+pin_memory: true
+gradient_clip_val: 1.0
+precision: 16-mixed
+
+# Fine-tuning
+finetune_input_size: 384
+finetune_loss: squared_wasserstein
+finetune_lr: 2.0e-5
+finetune_min_lr: 0.0
+finetune_weight_decay: 1.0e-5
+finetune_warmup_epochs: 0
+finetune_epochs: 25
+finetune_checkpoint: checkpoints/full-pretraining/checkpoint.pt
+train_on_train_and_valid: false
+skip_validation: false
+
+# Serving
+host: 0.0.0.0
+port: 8000
+workers: 1
+serving_checkpoint: checkpoints/finetune/best_validation_weights.pt

@@ -24,6 +24,10 @@ When `pmap` is provided, applies saliency-guided patch masking: only the top-k p
 `config.image_size` for sizing the positional-embedding grid. `interpolate_pos_embed`
 bicubically resamples the patch grid of a pretrained `pos_embed` to a new token count while
 keeping the class token fixed — this lets a checkpoint trained at 224 be fine-tuned at 384.
+The normal forward path does not dynamically interpolate positional embeddings, so input
+dimensions must produce the configured patch grid and be divisible by `patch_size`. Current
+interpolation assumes square old and new patch grids; non-square `image_size` values are not a
+portable checkpoint-conversion path.
 
 ::: dr_model.model.backbone
 
@@ -40,7 +44,9 @@ Saliency-supervised self-distillation pretrainer (SSiT). Two simultaneous object
 - **Momentum encoder**: `ViTBackbone` updated via EMA. Same architecture, `requires_grad=False`.
 - **Predictor**: 2-layer MLP on top of the base encoder's projection (BYOL-style asymmetry).
 - **Saliency segmentor**: `Conv2d(embed_dim, patch_size^2, 1)` + `PixelShuffle(patch_size)` applied to patch tokens from the base encoder.
-- **Saliency pool**: `MaxPool2d(patch_size, patch_size)` downsamples saliency maps to patch resolution for momentum encoder masking.
+- **Saliency pool**: `pool_mode: max` uses `MaxPool2d(patch_size, patch_size)`;
+  `pool_mode: avg` uses average pooling; any other value disables pooling and
+  saliency masking.
 
 ### Forward pass
 
@@ -75,14 +81,16 @@ DiabeticRetinopathy/
 ├── data/                    # shared, gitignored
 │   ├── cropped/             # JPEG fundus crops
 │   ├── saliency/            # .npy saliency maps
-│   └── dataset.pkl          # portable index (relative paths)
+│   └── data_index/           # portable index (relative paths)
 ├── preprocess-retina-datasets/   # writes into data/
 └── diabetic-retinopathy-model/   # reads from data/
 ```
 
 `PairDataset` loads image-saliency pairs from the pickle index produced by
-`preprocess-retina-datasets`. Paths in the pickle are stored **relative** to a common
-root directory, making the index portable across machines.
+`preprocess-retina-datasets`. Each image path in the pickle is relative to the
+image root and each saliency path is relative to the saliency root, making the
+index portable across machines. Matching relative subdirectories and filename
+stems are required.
 
 `TransformWithMask` applies asymmetric student/teacher augmentation with paired spatial transforms. Every spatial transform (crop, rotation, flip) is applied to the image and mask with the same sampled parameters. Colour-only transforms are applied to the image only.
 
@@ -96,21 +104,22 @@ initialised, the dataset is sharded with a `DistributedSampler` (exposed as
 
 ## Fine-tuning Data
 
-Fine-tuning datasets (DDR, Messidor-2, APTOS 2019) are prepared by
-`utils/crop.py` into an ImageFolder tree — one subdirectory per DR grade — with
-no labels file to parse and no splitting logic to implement:
+Fine-tuning datasets are prepared outside this repository by the
+`preprocess-retina-datasets` project into an ImageFolder tree — one
+subdirectory per DR grade — with no source labels file to parse and no
+splitting logic to implement here. For DDR, use its `crop-images` and
+`prepare-ddr` commands:
 
 ```
 <finetune_dataset_root>/
 ├── train/  0/ 1/ 2/ 3/ 4/
-├── val/    0/ 1/ 2/ 3/ 4/
+├── val/    0/ 1/ 2/ 3/ 4/  # val/ or valid/
 └── test/   0/ 1/ 2/ 3/ 4/
 ```
 
 `GradingDataset` wraps a single split directory in `ImageFolder`: subdirectory
 name → integer grade label, `getitem` returns `(float32 [3, H, W], int)`.
-It is dataset-agnostic — it never knows whether it is loading DDR, Messidor-2,
-or APTOS 2019.
+It is dataset-agnostic — it never knows which prepared dataset it is loading.
 
 `FinetuneDataModule` builds the `train`/`val`/`test` `GradingDataset`s from
 `config.finetune_dataset_root`. The train transform matches SSiT's
@@ -121,6 +130,13 @@ rotation, affine); the eval transform uses SSiT's plain
 `input_size` (224). Normalisation mean/std come from
 `config.finetune_mean`/`config.finetune_std` — select the right values from
 `DATASET_STATS` (keys `ddr`, `aptos2019`, `messidor2`, plus `eyepacs`).
+
+For a final fixed-epoch fit, `train_on_train_and_valid: true` creates a virtual
+concatenation of the prepared `train/` and `valid/` splits, without copying
+files. Set `skip_validation: true` after selecting the epoch count so the
+validation split is not evaluated during this final fit. The resulting final
+checkpoint is `epoch_N.pt`; no best-validation checkpoint is produced in this
+mode.
 
 ::: dr_model.data.dataset
 
@@ -199,7 +215,10 @@ fine-tuning resolution when the checkpoint was trained at a different one.
 
 - **Learning rate**: linear warmup from 0 to `finetune_lr` over `finetune_warmup_epochs`,
   then cosine decay to `finetune_min_lr`. Matches SSiT when `finetune_min_lr == 0`.
-- **Optimiser**: AdamW with `finetune_weight_decay`; loss is plain cross-entropy.
+- **Optimiser**: AdamW with `finetune_weight_decay`; loss is configurable via
+  `finetune_loss` and defaults to squared 2-Wasserstein
+  (`squared_wasserstein`). Other options are squared CDF (`squared_cdf`) and
+  cross-entropy (`cross_entropy`).
 - **Evaluation**: quadratic-weighted Cohen's kappa on the validation split each epoch.
 
 ### Checkpoints
@@ -209,6 +228,10 @@ Full training state (model, optimizer, scaler) saved under `<checkpoint_dir>/fin
 - `best_validation_weights.pt` — best validation kappa so far.
 - `epoch_{N}.pt` — every `save_every` epochs (excluding the final).
 - `epoch_{finetune_epochs}.pt` — always saved after the last epoch.
+
+The fine-tuning loop evaluates the validation split during training when
+validation is enabled, but does not evaluate the loaded test split. Test-set
+evaluation requires a separate follow-up workflow.
 
 ### Running fine-tuning
 
@@ -274,7 +297,8 @@ uv run torchrun --nnodes=1 --nproc-per-node=4 -m dr_model.training.cli \
 - **Distributed**: `rank`/`world_size`/`sampler` drive DDP-aware behaviour — per-epoch losses are all-reduced (sums + counts, so global means stay correct under uneven shards), the `DistributedSampler` is reshuffled via `set_epoch(epoch)`, and checkpoint/encoder saves are gated on `rank == 0`.
 - **Checkpointing**: interval saves at `save_every` epochs + final epoch. Saves both full training state (`checkpoint.pt`) and encoder-only weights (`epoch_{N}_encoder.pt`) from the *unwrapped* model, so keys never carry a `module.` prefix.
 - **TensorBoard**: logs `loss/contrastive`, `loss/saliency`, `loss/total`, `lr`, `momentum_m` per epoch (rank 0 only).
-- **MLflow**: logs the same 5 metrics per epoch, plus all Settings fields as params (when `config.mlflow == True`).
+- **MLflow**: logs the phase-specific metrics above, plus scalar Settings
+  fields as params when `config.mlflow == True`.
 
 The caller resolves the device, moves the model, and owns the writer's lifetime — the loop never closes it.
 
@@ -285,8 +309,8 @@ The caller resolves the device, moves the model, and owns the writer's lifetime 
 Export TensorBoard scalars to a PDF report:
 
 ```bash
-uv run dr-report --logdir logs/vit_p16_e768_d12_h12_c5/
-uv run dr-report --logdir logs/vit_p16_e768_d12_h12_c5/ --output report.pdf
+uv run dr-report --logdir logs/pretrain_vit_p16_e768_d12_h12_c5/
+uv run dr-report --logdir logs/pretrain_vit_p16_e768_d12_h12_c5/ --output report.pdf
 ```
 
 Generates a multi-page PDF with loss curves (contrastive, saliency, total), learning rate schedule, momentum schedule, and a summary page with final/best metrics.
@@ -306,7 +330,8 @@ Dual logging to MLflow (run comparison) and TensorBoard (live curves). Both reco
 Device resolution and determinism helpers for reproducible training.
 
 - `resolve_device(device_str)` — `"auto"` prefers CUDA, then MPS, then CPU. Other strings pass through.
-- `setup_determinism(seed)` — sets PyTorch/CUDA/cuDNN seeds and enables deterministic algorithms. Call before any CUDA work.
+- `setup_determinism(seed)` — seeds PyTorch/CUDA/cuDNN and, when requested by
+  configuration, enables deterministic algorithms. Call before any CUDA work.
 - `setup_cublas_workspace()` — sets `CUBLAS_WORKSPACE_CONFIG` for deterministic cuBLAS. Called automatically by `setup_determinism`.
 
 ::: dr_model.utils

@@ -101,10 +101,40 @@ def main(argv: list[str] | None = None) -> int:
         help="Pretrain checkpoint seeding the fine-tuning trunk (overrides config).",
     )
     parser.add_argument(
+        "--finetune-checkpoint-dir",
+        type=str,
+        default=None,
+        help="Checkpoint directory for this fine-tuning run (overrides config).",
+    )
+    parser.add_argument(
+        "--finetune-loss",
+        choices=["squared_wasserstein", "squared_cdf", "cross_entropy"],
+        default=None,
+        help="Fine-tuning loss (overrides config).",
+    )
+    parser.add_argument(
         "--num-workers",
         type=int,
         default=None,
         help="DataLoader worker processes (overrides config).",
+    )
+    parser.add_argument(
+        "--finetune-extra-epochs",
+        type=int,
+        default=0,
+        help="Additional fine-tuning epochs when resuming from a checkpoint.",
+    )
+    parser.add_argument(
+        "--train-on-train-and-valid",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Train on the virtual concatenation of train and validation splits.",
+    )
+    parser.add_argument(
+        "--skip-validation",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Skip validation during fine-tuning.",
     )
     args = parser.parse_args(argv)
 
@@ -133,7 +163,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.phase == "pretrain":
         return _run_pretrain(config, device, args.resume, ctx)
-    return _run_finetune(config, device, ctx)
+    return _run_finetune(config, device, ctx, args.resume, args.finetune_extra_epochs)
 
 
 def _collect_updates(args: argparse.Namespace) -> dict[str, object]:
@@ -155,7 +185,27 @@ def _collect_updates(args: argparse.Namespace) -> dict[str, object]:
         updates["finetune_checkpoint"] = args.finetune_checkpoint
     if args.num_workers is not None:
         updates["num_workers"] = args.num_workers
+    _collect_optional_updates(
+        updates,
+        args,
+        ("train_on_train_and_valid", "train_on_train_and_valid"),
+        ("skip_validation", "skip_validation"),
+        ("finetune_loss", "finetune_loss"),
+    )
+    if args.finetune_checkpoint_dir is not None:
+        updates["checkpoint_dir"] = Path(args.finetune_checkpoint_dir)
     return updates
+
+
+def _collect_optional_updates(
+    updates: dict[str, object],
+    args: argparse.Namespace,
+    *fields: tuple[str, str],
+) -> None:
+    for arg_name, field_name in fields:
+        value = getattr(args, arg_name)
+        if value is not None:
+            updates[field_name] = value
 
 
 def _run_pretrain(
@@ -221,6 +271,8 @@ def _run_finetune(
     config: Settings,
     device: torch.device,
     ctx: DistributedContext | None = None,
+    resume_path: str | None = None,
+    extra_epochs: int = 0,
 ) -> int:
     if ctx is None:
         ctx = detect_distributed_context(str(device))
@@ -231,7 +283,8 @@ def _run_finetune(
     dm = FinetuneDataModule(config)
     dm.setup()
 
-    model: nn.Module = Finetuner(config, checkpoint_path=config.finetune_checkpoint).to(device)
+    checkpoint_path = None if resume_path is not None else config.finetune_checkpoint
+    model: nn.Module = Finetuner(config, checkpoint_path=checkpoint_path).to(device)
     model = wrap_model(model, ctx)
 
     writer = None
@@ -246,7 +299,10 @@ def _run_finetune(
             mlflow.log_dict(config.model_dump(), "config.yaml")
 
         if config.tensorboard:
-            writer = init_tensorboard_logger(config, run_name=f"finetune_{config.model_name}")
+            writer = init_tensorboard_logger(
+                config,
+                run_name=f"finetune_{config.model_name}_{config.finetune_loss}",
+            )
 
     try:
         run(
@@ -257,6 +313,8 @@ def _run_finetune(
             writer=writer,
             rank=ctx.rank,
             world_size=ctx.world_size,
+            resume_path=resume_path,
+            extra_epochs=extra_epochs,
         )
     finally:
         if writer is not None:

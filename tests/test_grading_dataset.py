@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+from collections.abc import Sized
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -132,6 +133,9 @@ class TestFinetuneDataModule:
         assert dm.train_dataset is not None
         assert dm.val_dataset is not None
         assert dm.test_dataset is not None
+        assert isinstance(dm.train_dataset, Sized)
+        assert isinstance(dm.val_dataset, Sized)
+        assert isinstance(dm.test_dataset, Sized)
         expected = 2 * len(GRADES)
         assert len(dm.train_dataset) == expected
         assert len(dm.val_dataset) == expected

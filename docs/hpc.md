@@ -211,7 +211,8 @@ This is also the right machine to build the amd64 image for the cluster:
 
 ## MLflow on cluster
 
-MLflow 3.x requires a database backend (file store is no longer supported). The commands above use SQLite:
+The container's resolved MLflow version determines which tracking backends are
+supported. The commands above explicitly configure SQLite on scratch:
 
 ```
 MLFLOW_TRACKING_URI=sqlite:////scratch/mlflow/mlflow.db
@@ -241,7 +242,7 @@ Or log to a remote MLflow server instead:
 | `unexpected pos 64 vs 0` | `torch.save` failing on tmpfs | Bind-mount `checkpoints/` to scratch |
 | `No module named dr_model` | `python -m` invoked with the system Python instead of the venv | Use `uv run python -m dr_model.training.cli` |
 | `No such file or directory: dr-train` | Entry point called without `uv run` | Use `uv run dr-train` |
-| MLflow `filestore in maintenance mode` | MLflow 3.x dropped file store | Use `sqlite:///` URI |
+| MLflow `filestore in maintenance mode` | The installed MLflow version requires a database backend | Use the explicitly configured `sqlite:///` URI |
 | `Failed to initialize cache at .cache/uv` | Home directory is read-only | Use `--writable-tmpfs` and `--home /tmp` |
 | `CUDA out of memory` | Batch too large for GPU VRAM | Reduce `batch_size` in config |
 | `NVIDIA driver not detected` | Missing `--nv` flag | Add `--nv` to `singularity exec` |

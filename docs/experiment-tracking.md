@@ -23,7 +23,10 @@ tensorboard --logdir logs/
 
 Logged once at run start:
 
-- **All Settings fields** as params (39 parameters including architecture, training, data, and tracking config)
+- Scalar values from `Settings` as params. With the current default settings,
+  this is 48 parameters; an optional configured string such as
+  `finetune_checkpoint` can increase the count to 49. Paths, lists, tuples,
+  `None` values, and the computed `model_name` are not logged as params.
 - **Git commit hash** as tag
 - **CLI command** as tag
 
@@ -39,7 +42,10 @@ Logged per epoch:
 
 ### TensorBoard
 
-Same 5 metrics per epoch, plotted as live curves. Useful for watching training progress in real time.
+Pretraining logs the five loss/optimization metrics above plus `time/epoch`
+and `time/total`. Fine-tuning logs `loss/train`, `loss/val`, `kappa/val`, `lr`,
+and `time/epoch` when validation is enabled. Useful for watching training
+progress in real time.
 
 ## Configuration
 
@@ -47,7 +53,7 @@ Add to your YAML config:
 
 ```yaml
 mlflow: true                              # enable/disable MLflow
-mlflow_tracking_uri: null                 # null = local file store (mlflow.db)
+mlflow_tracking_uri: null                 # leave unset for MLflow's default URI
 mlflow_experiment_name: dr-pretrain       # experiment name in MLflow UI
 tensorboard: true                         # enable/disable TensorBoard
 ```
@@ -93,7 +99,6 @@ tensorboard --logdir logs/
 Opens a web interface at `http://localhost:6006` with:
 
 - **SCALARS** tab — loss curves, learning rate, momentum
-- **GRAPHS** tab — model computation graph (if enabled)
 - Real-time updates during training
 
 ### dr-report (PDF export)
@@ -101,20 +106,24 @@ Opens a web interface at `http://localhost:6006` with:
 Export TensorBoard scalars to a PDF:
 
 ```bash
-uv run dr-report --logdir logs/vit_p16_e768_d12_h12_c5/
-uv run dr-report --logdir logs/vit_p16_e768_d12_h12_c5/ --output report.pdf
+uv run dr-report --logdir logs/pretrain_vit_p16_e768_d12_h12_c5/
+uv run dr-report --logdir logs/pretrain_vit_p16_e768_d12_h12_c5/ --output report.pdf
 ```
 
 ## Local files
 
-MLflow stores data in two local files (both gitignored):
+When an explicit SQLite tracking URI is configured, MLflow stores data in a
+database and artifact location such as:
 
 | File | Purpose |
 |---|---|
 | `mlflow.db` | SQLite database with run metadata |
 | `mlruns/` | Run artifacts and metric history |
 
-These are created automatically on the first training run. To reset all runs, delete both:
+The training code does not automatically select this SQLite layout when
+`mlflow_tracking_uri` is `null`; configure a URI explicitly when a shared or
+portable local database is required. To reset a configured local store, delete
+its database and artifact directory:
 
 ```bash
 rm -rf mlflow.db mlflow.db-shm mlflow.db-wal mlruns/

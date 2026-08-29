@@ -20,7 +20,9 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any
 
+import yaml
 from pydantic import computed_field, field_validator
 from pydantic_settings import (
     BaseSettings,
@@ -46,16 +48,18 @@ class Settings(BaseSettings):
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
         yaml_file = os.getenv("DR_CONFIG_FILE", "configs/pretrain_default.yaml")
+        yaml_values = _load_yaml_config(Path(yaml_file))
         return (
             init_settings,
             env_settings,
             dotenv_settings,
-            YamlConfigSettingsSource(settings_cls, yaml_file=yaml_file),
+            _YamlConfigSettingsSource(settings_cls, yaml_values),
         )
 
     # ── paths ──────────────────────────────────────────────────────
     checkpoint_dir: Path = Path("checkpoints")
     log_dir: Path = Path("logs")
+    artifact_dir: Path = Path("../artifacts")
     data_dir: Path = Path("../data")
 
     # ── architecture ───────────────────────────────────────────────
@@ -108,14 +112,17 @@ class Settings(BaseSettings):
     # ── fine-tuning ────────────────────────────────────────────────
     finetune_dataset_root: Path | None = None
     finetune_input_size: int = 384
-    finetune_mean: list[float] = [0.46100369095802307, 0.246780663728714, 0.07989078760147095]
-    finetune_std: list[float] = [0.24873991310596466, 0.13842609524726868, 0.08025242388248444]
+    finetune_mean: list[float] = [0.423737496137619, 0.2609460651874542, 0.128403902053833]
+    finetune_std: list[float] = [0.29482534527778625, 0.20167365670204163, 0.13668020069599152]
     finetune_lr: float = 2e-5
     finetune_min_lr: float = 0.0
     finetune_weight_decay: float = 1e-5
     finetune_warmup_epochs: int = 5
     finetune_epochs: int = 25
     finetune_checkpoint: str | None = None
+    finetune_loss: str = "squared_wasserstein"
+    train_on_train_and_valid: bool = False
+    skip_validation: bool = False
 
     # ── experiment tracking ─────────────────────────────────────
     mlflow: bool = True
@@ -146,3 +153,46 @@ class Settings(BaseSettings):
     @property
     def model_name(self) -> str:
         return f"vit_p{self.patch_size}_e{self.embed_dim}_d{self.depth}_h{self.num_heads}_c{self.num_classes}"
+
+
+class _YamlConfigSettingsSource(YamlConfigSettingsSource):
+    """Settings source backed by a resolved base-plus-overlay YAML mapping."""
+
+    def __init__(self, settings_cls: type[BaseSettings], values: dict[str, Any]) -> None:
+        super().__init__(settings_cls, yaml_file=None)
+        self._values = values
+
+    def __call__(self) -> dict[str, Any]:
+        return self._values
+
+
+def _load_yaml_config(path: Path, seen: tuple[Path, ...] = ()) -> dict[str, Any]:
+    """Load a YAML config and recursively merge its optional ``_base_`` file."""
+    path = path.resolve()
+    if path in seen:
+        chain = " -> ".join(str(item) for item in (*seen, path))
+        raise ValueError from ValueError(chain)
+    with path.open(encoding="utf-8") as stream:
+        values = yaml.safe_load(stream) or {}
+    if not isinstance(values, dict):
+        raise TypeError
+
+    base_name = values.pop("_base_", None)
+    if base_name is None:
+        return values
+    if not isinstance(base_name, str):
+        raise TypeError
+
+    base = _load_yaml_config(path.parent / base_name, (*seen, path))
+    return _merge_yaml_values(base, values)
+
+
+def _merge_yaml_values(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+    """Merge overlay values into base values, recursively for mappings."""
+    merged = dict(base)
+    for key, value in overlay.items():
+        if isinstance(merged.get(key), dict) and isinstance(value, dict):
+            merged[key] = _merge_yaml_values(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
