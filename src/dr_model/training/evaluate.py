@@ -58,12 +58,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--num-workers", type=int, default=None, help="DataLoader workers (overrides config).")
     args = parser.parse_args(argv)
 
+    previous_config_file = os.environ.get("DR_CONFIG_FILE")
     if args.config is not None:
         os.environ["DR_CONFIG_FILE"] = args.config
     else:
         os.environ.setdefault("DR_CONFIG_FILE", "configs/finetune_default.yaml")
-
-    config = Settings()
+    try:
+        config = Settings()
+    finally:
+        if previous_config_file is None:
+            os.environ.pop("DR_CONFIG_FILE", None)
+        else:
+            os.environ["DR_CONFIG_FILE"] = previous_config_file
     updates: dict[str, object] = {}
     if args.dataset_root is not None:
         updates["finetune_dataset_root"] = Path(args.dataset_root)
