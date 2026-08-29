@@ -6,6 +6,7 @@ import itertools
 import json
 import math
 import os
+from collections.abc import Sized
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -312,6 +313,8 @@ class TestFinetuneDataModule:
 
         assert dm.val_dataset is not None
         assert dm.test_dataset is not None
+        assert isinstance(dm.val_dataset, Sized)
+        assert isinstance(dm.test_dataset, Sized)
         assert len(dm.val_dataset) == len(dm.test_dataset) == len(GRADES) * 2
 
     def test_setup_missing_val_and_valid_raises(self, tmp_path: Path) -> None:
@@ -380,6 +383,7 @@ class TestRun:
         dm = FinetuneDataModule(config)
         dm.setup()
         assert dm.train_dataset is not None
+        assert isinstance(dm.train_dataset, Sized)
         assert len(dm.train_dataset) == 20
         assert dm.val_dataset is None
 

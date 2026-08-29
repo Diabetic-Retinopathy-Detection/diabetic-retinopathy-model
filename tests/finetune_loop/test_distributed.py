@@ -92,7 +92,7 @@ class TestDistributedSamplerBoundary:
         torch.distributed.init_process_group("gloo", rank=0, world_size=1, init_method=f"tcp://127.0.0.1:{port}")
         try:
             dm = FinetuneDataModule(Settings(batch_size=4, num_workers=0, seed=-1))
-            dm.train_dataset = _DummyDataset()  # type: ignore[assignment]
+            dm.train_dataset = _DummyDataset()
             dl = dm.train_dataloader()
         finally:
             torch.distributed.destroy_process_group()
@@ -104,7 +104,7 @@ class TestDistributedSamplerBoundary:
         assert not torch.distributed.is_initialized()
 
         dm = FinetuneDataModule(Settings(batch_size=4, num_workers=0, seed=-1))
-        dm.train_dataset = _DummyDataset()  # type: ignore[assignment]
+        dm.train_dataset = _DummyDataset()
         dl = dm.train_dataloader()
 
         assert dm.sampler is None
@@ -190,8 +190,8 @@ def _ddp_worker(rank: int, world_size: int, config_dict: dict[str, object], port
         model = wrap_model(Finetuner(config), ctx)
         ds = TensorDataset(torch.randn(32, 3, 64, 64), torch.randint(0, 5, (32,)))
         dm = FinetuneDataModule(config)
-        dm.train_dataset = ds  # type: ignore[assignment]
-        dm.val_dataset = ds  # type: ignore[assignment]
+        dm.train_dataset = ds
+        dm.val_dataset = ds
         dm.test_dataset = ds  # type: ignore[assignment]
 
         run(
