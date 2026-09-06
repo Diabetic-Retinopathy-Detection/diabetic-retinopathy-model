@@ -11,6 +11,7 @@ nav:
   - Home: index.md
   - Configuration: configuration.md
   - Experiment Tracking: experiment-tracking.md
+  - Evaluation: evaluation.md
   - HPC Deployment: hpc.md
   - Distributed Training: distributed-training.md
   - Modules: modules.md
