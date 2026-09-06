@@ -16,9 +16,10 @@ _base_: finetune_base.yaml
 
 # Fine-tuning data (DDR by default; swap root and mean/std for APTOS-2019
 # or Messidor-2). DDR stats from SSiT funcs.py via dr_model.data.constants.
-finetune_dataset_root: ../datasets/DDR-ImageFolder-cropped
+finetune_dataset_root: ../datasets/IDRiD-ImageFolder-cropped
 finetune_input_size: 384
-finetune_mean: [0.423737496137619, 0.2609460651874542, 0.128403902053833]
-finetune_std: [0.29482534527778625, 0.20167365670204163, 0.13668020069599152]
+finetune_checkpoint: checkpoints/finetune/SquaredCDFLoss/DDR/DEV_SPLIT_epoch_13.pt
+finetune_mean: [0.543465, 0.264543, 0.087818]
+finetune_std: [0.25007, 0.143724, 0.086933]
 
-mlflow_experiment_name: dr-finetune
+mlflow_experiment_name: dr-finetune-IDRiD

@@ -250,10 +250,10 @@ class TestFinetuneLoss:
     def test_default_and_alternative_criteria(self) -> None:
         config = _settings(None)
 
-        assert isinstance(build_finetune_criterion(config), SquaredWassersteinLoss)
+        assert isinstance(build_finetune_criterion(config), SquaredCDFLoss)
         assert isinstance(
-            build_finetune_criterion(config.model_copy(update={"finetune_loss": "squared_cdf"})),
-            SquaredCDFLoss,
+            build_finetune_criterion(config.model_copy(update={"finetune_loss": "squared_wasserstein"})),
+            SquaredWassersteinLoss,
         )
         assert isinstance(
             build_finetune_criterion(config.model_copy(update={"finetune_loss": "cross_entropy"})),
