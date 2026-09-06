@@ -245,6 +245,8 @@ and runs the loop. Key flags: `--device`, `--seed`, `--finetune-epochs`, `--batc
 
 ### Distributed fine-tuning
 
+Note: This turned out to be a job that can be done without HPC cluster, so it was never used and maybe further debugging is necessary.
+
 `--phase finetune` supports the same single-node DDP as pretraining:
 
 ```bash
