@@ -41,6 +41,7 @@ dependencies = [
 dr-train = "dr_model.training.cli:main"
 dr-serve = "dr_model.serve.app:main"
 dr-report = "dr_model.training.report:main"
+knn-probe = "dr_model.evaluation.cli:main"
 dr-evaluate = "dr_model.training.evaluate:main"
 
 [project.urls]
@@ -97,6 +98,10 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = ["sklearn.*"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "dr_model.evaluation.knn"
+disable_error_code = ["no-any-unimported"]
 
 [tool.pytest.ini_options]
 addopts = ["-ra", "--strict-markers", "--tb=short", "-q"]
